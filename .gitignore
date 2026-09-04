@@ -1,0 +1,10 @@
+# Agent Runtime
+AGENTS.md
+
+# data file
+raw/
+release*/
+
+# Scripts
+script*/.*input*/
+script*/.*output*/
