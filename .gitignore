@@ -6,5 +6,5 @@ raw/
 release*/
 
 # Scripts
-script*/.*input*/
-script*/.*output*/
+.input/
+.output/
