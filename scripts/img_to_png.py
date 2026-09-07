@@ -38,8 +38,8 @@ except ImportError:
 
 DEFAULT_INPUT_DIR = ".input"
 DEFAULT_OUTPUT_DIR = ".output"
-DEFAULT_MIN_SIZE_KB = 150
-DEFAULT_MAX_SIZE_KB = 200
+DEFAULT_MIN_SIZE_KB = 300
+DEFAULT_MAX_SIZE_KB = 500
 
 IMAGE_EXTENSIONS = frozenset(
     (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tiff", ".tif", ".ico")
