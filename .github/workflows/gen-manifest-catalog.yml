@@ -1,0 +1,38 @@
+# 依据 dist 目录的层级结构生成各级 manifest 与分类 catalog,并以机器人身份回传仓库
+name: 生成manifest与catalog
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "dist/**"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: "manifest-catalog"
+  cancel-in-progress: false
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取仓库
+        uses: actions/checkout@v4
+      - name: 搭建Python环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 生成各级manifest
+        run: python scripts/gen_manifest.py
+      - name: 合并生成catalog
+        run: python scripts/gen_catalog.py
+      - name: 以机器人身份提交catalog
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add catalog
+          if git diff --cached --quiet; then
+            echo "catalog 无变化,跳过提交"
+          else
+            git commit -m "chore: regenerate catalog from dist"
+            git push
+          fi
