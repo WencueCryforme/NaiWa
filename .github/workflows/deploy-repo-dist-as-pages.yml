@@ -1,0 +1,32 @@
+# 可复用工作流: 构建门户网站静态产物并部署到 GitHub Pages
+# 由 while-push-dist.yml 在 gen-manifest-catalog 之后调用(on: workflow_call), 不自行触发
+# 注意: 必须检出最新 main, 否则拿到的是事件提交, 读不到机器人刚回传的 catalog
+name: 部署门户到Pages
+on:
+  workflow_call:
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取最新main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: 搭建Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 构建门户静态产物
+        run: python scripts/build_pages.py
+      - name: 配置Pages环境
+        uses: actions/configure-pages@v5
+      - name: 上传内容
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages/dist
+      - name: 部署到Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

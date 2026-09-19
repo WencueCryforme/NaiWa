@@ -1,0 +1,26 @@
+# dist 变更流水线入口:按先后顺序串行调用各可复用工作流,needs 保证前一步完成后再执行下一步
+# 新增下游工作流时,把它改成可复用工作流(on: workflow_call)并在本文件里用 needs 串到末尾
+name: dist变更流水线
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "dist/**"
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: "dist-pipeline"
+  cancel-in-progress: false
+jobs:
+  # 第 1 步:依据 dist 生成各级 manifest 与分类 catalog,并以机器人身份回传仓库
+  gen-manifest-catalog:
+    uses: ./.github/workflows/gen-manifest-catalog.yml
+
+  # 第 2 步:依据 catalog 构建门户静态产物并部署到 GitHub Pages
+  # 需要 pages: write 与 id-token: write 权限,已在上方 permissions 中补齐
+  deploy-pages:
+    needs: gen-manifest-catalog
+    uses: ./.github/workflows/deploy-repo-dist-as-pages.yml
