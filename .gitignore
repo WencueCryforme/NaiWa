@@ -1,5 +1,6 @@
 # Agent Runtime
 AGENTS.md
+.workbuddy/
 
 # data file
 raw/
@@ -8,3 +9,7 @@ release*/
 # Scripts
 .input/
 .output/
+__pycache__/
+
+# temp
+temp/

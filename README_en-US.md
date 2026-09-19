@@ -11,15 +11,15 @@
 
 </div>
 
-NaiWa's Universe.
+NaiWa's Universe
 
 ---
 
 ## Sticker Packs
 
 - Unified file format: `.png` `.gif`
-- dist level: compressed versions under 500KB, located under `dist/meme/`.
-- raw level: uncompressed versions for creation/distribution, not directly included in the repository content, listed per release batch in the sticker pack archive list document (`docs/meme-raw-list.md`)
+- dist level: compressed versions under 500KB/2MB, located under `dist/meme/`
+- raw level: uncompressed versions for creation/distribution, not directly included in the repository content, listed per release batch in the [**sticker pack archive list document**](docs/meme-list.md)
 
 ## Contributing
 
