@@ -114,7 +114,7 @@ python scripts/gen_catalog.py     # 合并为 catalog/catalog.<类型>.json
 - 合集级 manifest 只登记文件,不登记 `manifest.json` 自身,跳过隐藏文件(以 `.` 开头)
 - `gen_manifest.py` 会检查 dist 本体内是否残留旧位置的 manifest,发现时列出路径提醒删除
 - `gen_catalog.py` 发现任何一级 manifest 缺失时会列出缺失路径并返回退出码 2,先运行 `gen_manifest.py` 即可
-- 当 main 分支的 dist 目录有 push 时,`.github/workflows/gen-manifest-catalog.yml` 会在 GitHub 上自动依次运行这两个脚本,并以 `github-actions[bot]` 身份把 catalog/ 回传仓库;本地手动运行时按上面的命令顺序执行即可
+- 当 main 分支的 dist 目录有 push 时,入口工作流 `.github/workflows/while-push-dist.yml` 会调用可复用工作流 `.github/workflows/gen-manifest-catalog.yml`,在 GitHub 上依次运行这两个脚本,并以 `github-actions[bot]` 身份把 catalog/ 回传仓库;本地手动运行时按上面的命令顺序执行即可
 
 ## 输出规格
 

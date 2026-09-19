@@ -27,10 +27,9 @@ fork this repository -> clone your fork to local -> make changes locally -> comm
 When you have the **high-definition versions** of some sticker packs already in the repository, and your versions are higher in definition than the **raw** level sticker files already in a repository Release, you can contribute them through the following standardized flow:
 - Pack your sticker packs into a `.zip` archive with the following hierarchy
 ```
-.zip/
--  raw/
-    - <album name>/
-       - <sticker file>
+raw
+└─ album name
+   └─ sticker file
 ```
 - Rename the archive in the standardized form `update.raw.meme.<album name>-yyyy-MM-dd.zip`, where `yyyy-MM-dd` should be replaced with the **UTC date** at packing time
 - [Create a new Issue] and attach your sticker `.zip` archive
