@@ -17,9 +17,10 @@ NaiWa's Universe
 
 ## Sticker Packs
 
-- Unified file format: `.png` `.gif`
+- Unified file format: `.jpg` `.gif`
 - dist level: compressed versions under 500KB/2MB, located under `dist/meme/`
-- raw level: uncompressed versions for creation/distribution, not directly included in the repository content, listed per release batch in the [**sticker pack archive list document**](docs/meme-list.md)
+- raw level: uncompressed versions for creation/distribution, not directly included in the repository content
+- both levels are released in the Assets list of a version Release; see the [**sticker pack archive list document**](docs/meme-list.md)
 
 ## Contributing
 

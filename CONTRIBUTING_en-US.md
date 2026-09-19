@@ -14,7 +14,7 @@ fork this repository -> clone your fork to local -> make changes locally -> comm
 ## Adding Sticker Packs
 
 - All sticker packs are organized by album; follow the directory convention and create a new album folder under `dist/meme/`
-- Store **compressed versions** of `.png` (500KB or less preferred) or `.gif` (2MB or less preferred) files in your album folder, and name the files to briefly describe the sticker content or meaning
+- Store **compressed versions** of `.jpg` (500KB or less preferred) or `.gif` (2MB or less preferred) files in your album folder, and name the files to briefly describe the sticker content or meaning
 - Submit a PR to this repository, and attach your album's **uncompressed versions** as one `.zip` archive (named after the album) in the PR comments, then wait for review
 - Once approved, both the uncompressed and compressed versions of your sticker album will be uploaded to the Assets list of a version Release, and the album will be listed in the [sticker pack archive list document](docs/meme-list.md)
 - Alternatively, you can submit the `.zip` archive of your **uncompressed versions** by following the flow in the [#Adding High-Definition Versions](#adding-high-definition-versions) section, though this will take longer to review and categorize
