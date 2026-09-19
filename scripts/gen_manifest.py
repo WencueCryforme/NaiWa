@@ -48,8 +48,8 @@ JSON_SEPARATORS = (",", ":")
 MANIFEST_NAME_PREFIX = "NaiWa-"
 MANIFEST_NAME_SUFFIX = "-manifest"
 
-# dist 根级沿用现有文件的字面量(其中的 tyeps 疑为 types 的笔误,如需修正改这一处)
-DIST_ROOT_MANIFEST_NAME = "NaiWa-dist-tyeps-manifest"
+# dist 根级 manifest 的 name 字面量(描述 dist 根级类型列表,与存放位置无关)
+DIST_ROOT_MANIFEST_NAME = "NaiWa-dist-types-manifest"
 
 
 def repo_root() -> str:

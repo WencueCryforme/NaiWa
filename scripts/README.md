@@ -11,7 +11,7 @@
 | `gif_resize.py` | 扫描 gif 动图,输出不大于 2MB 的 gif,保留全部帧、逐帧时长、循环次数与透明区域 |
 | `gen_manifest.py` | 单文件脚本: 扫描 dist 各级结构,按相同层级在 `catalog/dist/` 下生成各级 manifest.json |
 | `gen_catalog.py` | 单文件脚本: 合并各级 manifest.json 为 `catalog/catalog.<类型>.json` |
-| `build_pages.py` | 构建页面脚本,当前为空文件,功能未实现 |
+| `build_pages.py` | 单文件脚本: 依据 catalog 与 pages/ 模板构建门户静态产物到 `pages/dist/`, 并把 dist 媒体复制到 `pages/dist/files/` |
 | `runPython.bat` | Windows 运行入口: 转发全部参数给 python,并在运行前自检 opencv-python 是否可用 |
 
 ## 依赖要求
@@ -108,13 +108,34 @@ python scripts/gen_catalog.py     # 合并为 catalog/catalog.<类型>.json
 
 约定与注意事项:
 
-- `name` 字段为 `NaiWa-<dist 下目录相对仓库根目录的路径,以 - 连接>-manifest`;dist 根级沿用既有字面量 `NaiWa-dist-tyeps-manifest`,该字段描述的是 dist 下的路径,与 manifest 自身的存放位置无关
+- `name` 字段为 `NaiWa-<dist 下目录相对仓库根目录的路径,以 - 连接>-manifest`;dist 根级字面量为 `NaiWa-dist-types-manifest`(描述 dist 根级的类型列表),该字段描述的是 dist 下的路径,与 manifest 自身的存放位置无关
 - 两个脚本的产物均为**去除空白符**的 JSON(分隔符不带空格、无行尾换行),便于体积与 diff 稳定
 - 条目按名称的 Unicode 码位排序,同样内容每次生成结果逐字节一致;因此生成后的顺序与手工填写的顺序可能不同
 - 合集级 manifest 只登记文件,不登记 `manifest.json` 自身,跳过隐藏文件(以 `.` 开头)
 - `gen_manifest.py` 会检查 dist 本体内是否残留旧位置的 manifest,发现时列出路径提醒删除
 - `gen_catalog.py` 发现任何一级 manifest 缺失时会列出缺失路径并返回退出码 2,先运行 `gen_manifest.py` 即可
 - 当 main 分支的 dist 目录有 push 时,入口工作流 `.github/workflows/while-push-dist.yml` 会调用可复用工作流 `.github/workflows/gen-manifest-catalog.yml`,在 GitHub 上依次运行这两个脚本,并以 `github-actions[bot]` 身份把 catalog/ 回传仓库;本地手动运行时按上面的命令顺序执行即可
+
+## 门户构建
+
+`build_pages.py` 也是**自包含单文件**,只需 Python 标准库;路径以仓库根为基准解析,输出目录缺失时自动创建。
+
+```bash
+python scripts/build_pages.py    # 读取 catalog 与 pages/ 模板,生成 pages/dist/
+```
+
+构建内容:
+
+| 产物 | 来源 | 说明 |
+|:---:|:---:|:---|
+| `pages/dist/index.html` 等模板文件 | `pages/` | 平铺复制,清单见脚本 `TEMPLATE_FILES` 常量 |
+| `pages/dist/catalog-data.js` | `catalog/` | 由脚本生成的前端数据文件,含 catalog 数据与构建信息 |
+| `pages/dist/files/` | `dist/` | 媒体按原层级复制,供前端以相对路径 `./files/` 引用 |
+
+- 构建时间取 dist 目录树中最新的文件修改时间(本地时区 `yyyy-MM-dd HH:mm:ss+HH:mm`),同样输入重复运行产物一致
+- 媒体 URL 的中文百分号编码由前端 `main.js` 运行时完成,数据文件保存原始文件名
+- 脚本只做覆盖写与新增写,不删除产物旧文件;dist 中删除素材后本地重建会留残留,脚本会列出提醒手动清理(GitHub Actions 全新检出环境无此问题)
+- 当 main 分支的 dist 目录有 push 时,入口工作流会在生成 catalog 之后自动调用本脚本并把 `pages/dist/` 部署到 GitHub Pages
 
 ## 输出规格
 

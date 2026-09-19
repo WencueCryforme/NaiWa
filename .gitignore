@@ -6,6 +6,12 @@ AGENTS.md
 raw/
 release*/
 
+# api runtime data
+api/data/
+
+# build output
+pages/dist/
+
 # Scripts
 .input/
 .output/
