@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="奶蛙表情包宇宙在线版 - 在线浏览奶蛙表情包合集, 支持收藏与热门排序">
+  <meta name="theme-color" content="#3aa675">
+  <title>奶蛙宇宙</title>
+  <link rel="icon" href="favicon.png" type="image/png">
+  <link rel="stylesheet" href="main.css">
+</head>
+<body>
+  <!-- 顶部导航 -->
+  <header class="top-bar">
+    <div class="brand" id="brandHome" title="回到首页">
+      <img class="brand-icon" src="favicon.png" alt="站点图标">
+      <span class="brand-name">奶蛙宇宙</span>
+    </div>
+    <nav class="tab-nav" id="tabNav">
+      <button class="tab-btn" data-view="home">首页</button>
+      <button class="tab-btn" data-view="favorites">收藏</button>
+      <button class="tab-btn" data-view="hot">热门</button>
+      <button class="tab-btn" data-view="about">关于</button>
+    </nav>
+    <button class="settings-toggle" id="settingsToggle" title="设置">&#9881;</button>
+  </header>
+
+  <!-- 面包屑(合集视图) -->
+  <div class="crumb-bar" id="crumbBar" hidden>
+    <button class="crumb-link" id="crumbHome">首页</button>
+    <span class="crumb-sep">/</span>
+    <span class="crumb-type" id="crumbType"></span>
+    <span class="crumb-sep">/</span>
+    <span class="crumb-album" id="crumbAlbum"></span>
+  </div>
+
+  <!-- 公告栏 -->
+  <div class="notice-bar" id="noticeBar" hidden>
+    <span class="notice-text" id="noticeText"></span>
+    <button class="notice-close" id="noticeClose" title="关闭公告">&times;</button>
+  </div>
+
+  <!-- 主内容区 -->
+  <main class="main-content">
+    <!-- 首页: 类型 -> 合集导航 -->
+    <section class="view" id="viewHome">
+      <div class="type-nav" id="typeNav"></div>
+      <div class="album-nav" id="albumNav"></div>
+    </section>
+
+    <!-- 合集浏览: 懒加载媒体网格 -->
+    <section class="view" id="viewAlbum" hidden>
+      <div class="grid-container" id="albumGrid"></div>
+      <div class="load-indicator" id="albumLoadIndicator" hidden>
+        <div class="load-spinner"></div>
+        <span>加载中</span>
+      </div>
+      <div class="no-more" id="albumNoMore" hidden>已经到底了</div>
+    </section>
+
+    <!-- 收藏 -->
+    <section class="view" id="viewFavorites" hidden>
+      <div class="view-empty" id="favoritesEmpty" hidden>
+        <p>还没有收藏任何表情包</p>
+        <p class="view-empty-hint">在合集浏览中点击卡片上的星标即可收藏</p>
+      </div>
+      <div class="grid-container" id="favoritesGrid"></div>
+    </section>
+
+    <!-- 热门 -->
+    <section class="view" id="viewHot" hidden>
+      <div class="view-empty" id="hotEmpty" hidden>
+        <p id="hotEmptyText">热门数据不可用</p>
+      </div>
+      <div class="grid-container" id="hotGrid"></div>
+      <div class="no-more" id="hotNoMore" hidden>已经到底了</div>
+    </section>
+
+    <!-- 关于 -->
+    <section class="view view-about" id="viewAbout" hidden>
+      <h2 class="about-title">关于本站</h2>
+      <p class="about-lead">本站是奶蛙表情包分发仓库的在线门户, 提供全部已发布表情包的在线浏览。</p>
+      <table class="about-table">
+        <tbody>
+          <tr><th>内容组织</th><td>类型 -&gt; 合集 -&gt; 表情包</td></tr>
+          <tr><th>素材规格</th><td>静态图 jpg(不大于 500KB), 动图 gif(不大于 2MB)</td></tr>
+          <tr><th>数据来源</th><td>仓库 dist 目录, 由 catalog 清单驱动</td></tr>
+          <tr><th>构建时间</th><td id="aboutBuildTime">-</td></tr>
+        </tbody>
+      </table>
+      <h3 class="about-subtitle">下载方式</h3>
+      <ul class="about-list">
+        <li>高清原素材与按版本归档的压缩包发布在仓库的 Releases 页面</li>
+        <li>在线图片可在全屏查看中长按或右键另存</li>
+      </ul>
+      <h3 class="about-subtitle">开源地址</h3>
+      <p class="about-repo" id="aboutRepo">-</p>
+      <h3 class="about-subtitle">声明</h3>
+      <p class="about-note">本项目为非营利性表情包分发项目, 素材仅用于交流娱乐, 如有侵权请联系删除。</p>
+    </section>
+  </main>
+
+  <!-- 页脚(作者信息由 main.js 注入) -->
+  <footer class="site-footer" id="siteFooter"></footer>
+
+  <!-- 回到顶部 -->
+  <button class="back-to-top" id="btnBackTop" title="回到顶部">&#9650;</button>
+
+  <!-- 全屏查看模态 -->
+  <div class="fullscreen-modal" id="fullscreenModal" hidden>
+    <button class="fullscreen-close" id="fullscreenClose" title="关闭">&times;</button>
+    <div class="fullscreen-controls">
+      <button class="fs-ctrl-btn" id="zoomIn" title="放大">+</button>
+      <button class="fs-ctrl-btn" id="zoomOut" title="缩小">&minus;</button>
+      <button class="fs-ctrl-btn" id="zoomReset" title="重置">1:1</button>
+    </div>
+    <div class="fullscreen-media-wrap" id="fullscreenWrap">
+      <img class="fullscreen-media" id="fullscreenMedia" src="" alt="">
+    </div>
+    <div class="fullscreen-caption" id="fullscreenCaption"></div>
+  </div>
+
+  <!-- 设置面板 -->
+  <div class="settings-panel" id="settingsPanel" hidden>
+    <div class="settings-header">
+      <span class="settings-title">设置</span>
+      <button class="settings-close" id="settingsClose">&times;</button>
+    </div>
+    <div class="settings-body">
+      <div class="settings-section">
+        <div class="settings-label">视图列数</div>
+        <div class="col-switch" id="colSwitch">
+          <button class="col-btn" data-col="1">1</button>
+          <button class="col-btn" data-col="2">2</button>
+          <button class="col-btn" data-col="3">3</button>
+          <button class="col-btn" data-col="4">4</button>
+          <button class="col-btn" data-col="5">5</button>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-label">卡片视窗比例</div>
+        <div class="ratio-switch" id="ratioSwitch"></div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-label">主题</div>
+        <select class="settings-select" id="themeSwitch"></select>
+      </div>
+      <div class="settings-section">
+        <div class="settings-label">卡片文字</div>
+        <div class="col-switch" id="captionSwitch">
+          <button class="col-btn" data-caption="1">显示</button>
+          <button class="col-btn" data-caption="0">隐藏</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 首次访问引导 -->
+  <div class="guide-layer" id="guideLayer" hidden>
+    <div class="guide-card">
+      <div class="guide-title">欢迎来到奶蛙宇宙</div>
+      <ul class="guide-list">
+        <li>首页按 类型 -&gt; 合集 浏览表情包, 点击合集进入网格</li>
+        <li>点击卡片进入全屏查看, 支持缩放与 1:1 原始尺寸</li>
+        <li>卡片上的星标可以收藏表情包, 收藏保存在本机浏览器</li>
+        <li>右上角齿轮可以调整主题, 列数与卡片比例</li>
+      </ul>
+      <button class="guide-btn" id="guideClose">我知道了</button>
+    </div>
+  </div>
+
+  <!-- 飘窗提醒容器 -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="catalog-data.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
