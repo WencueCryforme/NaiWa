@@ -1,26 +1,33 @@
-"""表情包压缩脚本的共用能力
+"""表情包压缩脚本的共用能力(纯 OpenCV 方案)
 
-集中存放 img_resize.py(静态图片)与 gif_resize.py(动图)共用的常量、
-批量扫描、量化、缩放逼近与批处理流程,避免两份脚本重复维护同一套逻辑。
-常量均属可个性化修改的设计细节,集中在文件顶部便于开发者知悉和维护。
+集中存放 img_resize.py(静态图片)与 gif_resize.py(动图)共用的常量、文件扫描、
+缩放、上限逼近与批处理流程。常量均属可个性化修改的设计细节,集中在文件顶部
+便于开发者知悉和维护。
 
-依赖:Pillow 库。
+依赖:opencv-python(>=4.11,含 Animation API)与 numpy,安装方式见 scripts/README.md。
+
+平台约束:cv2 的路径级 API(imread/imwrite/imreadanimation)在 Windows 上不支持
+非 ASCII 路径,而本仓库素材文件名均为中文,因此本模块统一走字节级 API
+(imdecode/imencode/imdecodeanimation/imencodeanimation)并自行读写文件。
 """
 
 from __future__ import annotations
 
 import argparse
-import math
 import os
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 
 try:
-    from PIL import Image
+    import cv2
+    import numpy as np
 except ImportError:
     sys.stderr.write(
-        "错误:缺少 Pillow 依赖库,请先执行 pip install Pillow 后重试。\n"
+        "错误:缺少 OpenCV 依赖库。\n"
+        "请先安装依赖后重试:\n"
+        '    pip install --upgrade "opencv-python>=4.11"\n'
+        "GIF 动图的压缩需要 OpenCV 4.11 及以上版本(Animation API)。\n"
     )
     sys.exit(1)
 
@@ -32,7 +39,7 @@ except ImportError:
 DEFAULT_INPUT_DIR = ".input"
 DEFAULT_OUTPUT_DIR = ".output"
 
-PNG_EXTENSION = ".png"
+JPG_EXTENSION = ".jpg"
 GIF_EXTENSION = ".gif"
 
 IMAGE_EXTENSIONS = frozenset(
@@ -40,21 +47,27 @@ IMAGE_EXTENSIONS = frozenset(
 )
 STATIC_EXTENSIONS = IMAGE_EXTENSIONS - {GIF_EXTENSION}
 
-# 带透明通道的像素 alpha 低于该值视为完全透明,GIF 只支持二值透明
-ALPHA_THRESHOLD = 128
+# JPEG 编码质量 0-100:90 时插画类素材在 500KB 上限内基本能保住原尺寸,
+# 照片类素材体积与源文件相当
+JPEG_QUALITY = 90
 
-# 透明区域在量化前的统一铺底色,该区域最终会被独立索引标记为透明
-TRANSPARENT_BACKGROUND = (0, 0, 0)
+# 带透明通道的素材转 JPEG(不支持 alpha)时使用的合成底色
+TRANSPARENT_BACKGROUND = (255, 255, 255)
 
-# 缩放逼近的迭代次数与缩放下限,缩放比例越小体积越小
-SEARCH_ITERATIONS = 6
+# 上限逼近的迭代次数与缩放下限,缩放比例越小体积越小
+SEARCH_ITERATIONS = 5
 MIN_SCALE = 0.02
 
-# 全局调色板的抽样规模,抽样帧数与抽样总像素
-PALETTE_SAMPLE_FRAMES = 16
-PALETTE_SAMPLE_PIXELS = 1 << 20
+# GIF 调色板质量(1-8),数值越大颜色越丰富、体积越大
+GIF_QUALITY_HIGH = 3
+GIF_QUALITY_LOW = 1
 
-PNG_COMPRESS_LEVEL = 9
+# 源文件缺失逐帧时长时使用的兜底帧时长
+DEFAULT_FRAME_DURATION_MS = 100
+
+# GIF 动图读写所需的最低 OpenCV 版本
+GIF_MIN_OPENCV = (4, 11)
+
 KB = 1024
 
 
@@ -149,130 +162,163 @@ def collect_image_files(
     return files
 
 
+def read_image(path: str) -> np.ndarray | None:
+    """按字节读取单帧图片,保留 alpha 通道
+
+    不使用 cv2.imread,因为它无法处理中文路径
+    """
+    with open(path, "rb") as source:
+        buffer = np.frombuffer(source.read(), np.uint8)
+    return cv2.imdecode(buffer, cv2.IMREAD_UNCHANGED)
+
+
+def encode_image(
+    extension: str, image: np.ndarray, params: list[int] | None = None
+) -> bytes:
+    """把单帧图片编码为目标格式的字节"""
+    ok, buffer = cv2.imencode(extension, image, params or [])
+    if not ok:
+        raise IOError(f"图片编码失败:{extension}")
+    return buffer.tobytes()
+
+
+def write_image(path: str, image: np.ndarray, params: list[int] | None = None) -> int:
+    """按字节写出单帧图片,返回写出字节数
+
+    不使用 cv2.imwrite,因为它无法处理中文路径
+    """
+    data = encode_image(os.path.splitext(path)[1], image, params)
+    with open(path, "wb") as output_file:
+        output_file.write(data)
+    return len(data)
+
+
+def opencv_version() -> tuple[int, ...]:
+    """当前 OpenCV 版本号元组,取主次版本"""
+    parts = []
+    for piece in cv2.__version__.split(".")[:2]:
+        digits = "".join(ch for ch in piece if ch.isdigit())
+        parts.append(int(digits or 0))
+    return tuple(parts)
+
+
+def gif_supported() -> bool:
+    """检测当前环境是否支持 GIF 动画读写
+
+    需要 OpenCV >= 4.11 的 Animation API,且编译时启用了 GIF 编解码
+    """
+    if opencv_version() < GIF_MIN_OPENCV:
+        return False
+    if not (hasattr(cv2, "imdecodeanimation") and hasattr(cv2, "imencodeanimation")):
+        return False
+    try:
+        probe = cv2.Animation()
+        probe.frames = [np.zeros((8, 8, 3), np.uint8)] * 2
+        probe.durations = [100, 100]
+        probe.loop_count = 0
+        return bool(cv2.imencodeanimation(".gif", probe)[0])
+    except Exception:
+        return False
+
+
+def read_animation(path: str) -> cv2.Animation:
+    """按字节读取 GIF 动画,保留全部帧、逐帧时长与循环次数"""
+    with open(path, "rb") as source:
+        buffer = np.frombuffer(source.read(), np.uint8)
+    ok, animation = cv2.imdecodeanimation(buffer, cv2.IMREAD_UNCHANGED)
+    if not ok or not animation.frames:
+        raise IOError(f"无法读取 GIF 动图:{path}")
+    return animation
+
+
+def encode_animation(
+    animation: cv2.Animation, params: list[int] | None = None
+) -> bytes:
+    """把 GIF 动画编码为字节
+
+    注意:帧数与逐帧时长长度必须一致,否则 OpenCV 会断言失败
+    """
+    ok, buffer = cv2.imencodeanimation(".gif", animation, params or [])
+    if not ok:
+        raise IOError("GIF 动画编码失败")
+    return buffer.tobytes()
+
+
+def write_animation(
+    path: str, animation: cv2.Animation, params: list[int] | None = None
+) -> int:
+    """按字节写出 GIF 动画,返回写出字节数"""
+    data = encode_animation(animation, params)
+    with open(path, "wb") as output_file:
+        output_file.write(data)
+    return len(data)
+
+
+def build_animation(
+    frames: list[np.ndarray], durations: list[int], loop_count: int
+) -> cv2.Animation:
+    """按帧序列、逐帧时长与循环次数组装动画对象
+
+    时长长度与帧数不一致时按帧数补齐或截断,避免编码断言失败
+    """
+    animation = cv2.Animation()
+    animation.frames = frames
+    animation.durations = [
+        int(durations[index]) if index < len(durations) else durations[-1]
+        for index in range(len(frames))
+    ] if durations else [DEFAULT_FRAME_DURATION_MS] * len(frames)
+    animation.loop_count = int(loop_count)
+    return animation
+
+
 def copy_file(src_path: str, dst_path: str) -> None:
     """原样复制体积已达标且格式已合规的文件"""
-    with open(src_path, "rb") as src_file, open(dst_path, "wb") as dst_file:
-        dst_file.write(src_file.read())
+    with open(src_path, "rb") as src_file, open(dst_path, "wb") as output_file:
+        output_file.write(src_file.read())
 
 
-def resize_image(image: Image.Image, scale: float) -> Image.Image:
-    """按比例缩放图片,使用 LANCZOS 重采样,尺寸下限为 1 像素
+def resize_area(image: np.ndarray, scale: float) -> np.ndarray:
+    """按比例缩小图片
 
-    缩放比例不小于 1 时原样返回,避免无效果的高开销重采样
+    使用 INTER_AREA:该插值专为缩小设计,按面积平均,抗混叠与抗摩尔纹
+    表现最好;缩放比例不小于 1 时原样返回
     """
     if scale >= 1.0:
         return image
-    width = max(1, round(image.width * scale))
-    height = max(1, round(image.height * scale))
-    return image.resize((width, height), Image.Resampling.LANCZOS)
+    height, width = image.shape[:2]
+    size = (max(1, int(round(width * scale))), max(1, int(round(height * scale))))
+    return cv2.resize(image, size, interpolation=cv2.INTER_AREA)
 
 
-def quantize_image(image: Image.Image, colors: int) -> Image.Image:
-    """把单帧图片量化到指定颜色数,获得更小的体积
+def drop_opaque_alpha(image: np.ndarray) -> np.ndarray:
+    """alpha 通道完全不透明时丢弃该通道,减小产物体积"""
+    if image.ndim == 3 and image.shape[2] == 4:
+        if int(image[:, :, 3].min()) == 255:
+            return image[:, :, :3]
+    return image
 
-    统一使用快速八叉树算法:实测本项目素材在同等色数下,八叉树的调色板
-    与索引排布更利于 PNG 与 GIF 的压缩,原尺寸即可压到上限以内,避免为了
-    达标而牺牲分辨率;中位切分法色差更小但体积约为前者的三倍,达不到
-    减少信息损失的目的
+
+def flatten_to_bgr(
+    image: np.ndarray, background: tuple[int, int, int] = TRANSPARENT_BACKGROUND
+) -> tuple[np.ndarray, bool]:
+    """把带 alpha 的图片合成到纯色底上,得到 JPEG 可写的三通道图
+
+    JPEG 不支持透明通道:alpha 全不透明时直接丢弃该通道,存在透明像素时
+    与底色合成。返回 (图片, 是否发生了透明合成)
     """
-    try:
-        return image.quantize(
-            colors=colors, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.NONE
-        )
-    except (ValueError, TypeError):
-        # 兼容旧版本 Pillow 的参数形式
-        return image.quantize(colors=colors, method=Image.FASTOCTREE, dither=0)
+    if image.ndim != 3 or image.shape[2] != 4:
+        return image, False
+    alpha = image[:, :, 3]
+    if int(alpha.min()) == 255:
+        return image[:, :, :3], False
+    bgr = image[:, :, :3].astype(np.float32)
+    weight = (alpha.astype(np.float32) / 255.0)[:, :, None]
+    canvas = np.array(background, dtype=np.float32)[None, None, :]
+    merged = bgr * weight + canvas * (1.0 - weight)
+    return merged.astype(np.uint8), True
 
 
-def quantize_transparent(image: Image.Image, colors: int) -> Image.Image:
-    """把带透明通道的图片量化为 P 模式,并显式标记透明索引
-
-    Pillow 的量化不会自动保留透明信息,这里把透明像素统一收敛到一个
-    独立的调色板索引,并在图像信息中把该索引标记为透明色,避免透明
-    背景在输出中变成黑色底板。透明区域的 RGB 取值没有意义,量化前先
-    统一铺成单色,让调色板只服务于可见内容,同时大幅提升压缩率
-    """
-    alpha = image.getchannel("A")
-    transparent_mask = alpha.point(lambda value: 255 if value < ALPHA_THRESHOLD else 0)
-    if transparent_mask.getextrema()[0] > 0:
-        # 没有透明像素,退化为普通量化
-        return quantize_image(image, colors)
-    opaque_mask = alpha.point(lambda value: 255 if value >= ALPHA_THRESHOLD else 0)
-    limit = max(2, colors - 1)
-    flattened = Image.new("RGB", image.size, TRANSPARENT_BACKGROUND)
-    flattened.paste(image.convert("RGB"), (0, 0), opaque_mask)
-    quantized = quantize_image(flattened, limit)
-    transparent_index = limit
-    palette = quantized.getpalette()
-    while len(palette) < 3 * (transparent_index + 1):
-        palette.append(0)
-    palette[3 * transparent_index : 3 * transparent_index + 3] = [0, 0, 0]
-    quantized.putpalette(palette)
-    quantized.paste(
-        transparent_index, (0, 0, quantized.width, quantized.height), transparent_mask
-    )
-    quantized.info["transparency"] = transparent_index
-    return quantized
-
-
-def quantize_frame(image: Image.Image, colors: int) -> Image.Image:
-    """按图片是否真正含透明像素选择量化方式"""
-    if image.mode == "RGBA" and image.getchannel("A").getextrema()[0] < ALPHA_THRESHOLD:
-        return quantize_transparent(image, colors)
-    return quantize_image(image, colors)
-
-
-def build_palette_reference(frames: list[Image.Image], colors: int) -> Image.Image:
-    """把多帧抽样拼接成一张参考图,据此生成全局调色板
-
-    统一调色板让各帧共用同一份颜色表,避免逐帧独立调色导致的体积
-    膨胀,也让播放时颜色稳定不闪烁
-    """
-    step = max(1, len(frames) // PALETTE_SAMPLE_FRAMES)
-    samples = frames[::step][:PALETTE_SAMPLE_FRAMES]
-    budget = max(1, PALETTE_SAMPLE_PIXELS // len(samples))
-    thumbs: list[Image.Image] = []
-    for frame in samples:
-        thumb = frame.convert("RGB")
-        pixels = thumb.width * thumb.height
-        if pixels > budget:
-            ratio = math.sqrt(budget / pixels)
-            thumb = thumb.resize(
-                (
-                    max(1, round(thumb.width * ratio)),
-                    max(1, round(thumb.height * ratio)),
-                ),
-                Image.Resampling.LANCZOS,
-            )
-        thumbs.append(thumb)
-    columns = math.ceil(math.sqrt(len(thumbs)))
-    rows = math.ceil(len(thumbs) / columns)
-    cell_width = max(thumb.width for thumb in thumbs)
-    cell_height = max(thumb.height for thumb in thumbs)
-    canvas = Image.new("RGB", (cell_width * columns, cell_height * rows))
-    for index, thumb in enumerate(thumbs):
-        canvas.paste(
-            thumb, ((index % columns) * cell_width, (index // columns) * cell_height)
-        )
-    return canvas.quantize(
-        colors=colors, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE
-    )
-
-
-def cached_encode(encode: Callable[[float], bytes]) -> Callable[[float], bytes]:
-    """包裹编码函数并缓存结果,避免逼近过程中对同一比例重复编码"""
-    cache: dict[float, bytes] = {}
-
-    def run(scale: float) -> bytes:
-        key = round(scale, 6)
-        if key not in cache:
-            cache[key] = encode(key)
-        return cache[key]
-
-    return run
-
-
-def fit_encode(encode: Callable[[float], bytes], max_bytes: int) -> tuple[bytes, float]:
+def fit_bytes(encode: Callable[[float], bytes], max_bytes: int) -> tuple[bytes, float]:
     """在缩放区间内逼近不超过上限的最大编码结果
 
     体积与像素面积近似成正比,因此先用面积比估算缩放比例收窄区间,
@@ -282,36 +328,35 @@ def fit_encode(encode: Callable[[float], bytes], max_bytes: int) -> tuple[bytes,
     full = encode(1.0)
     if len(full) <= max_bytes:
         return full, 1.0
-    estimate = min(1.0, max(MIN_SCALE, math.sqrt(max_bytes / len(full))))
+    estimate = min(1.0, max(MIN_SCALE, (max_bytes / len(full)) ** 0.5))
     probe = encode(estimate)
     if len(probe) <= max_bytes:
         best, best_scale = probe, estimate
-        lo, hi = estimate, 1.0
+        low, high = estimate, 1.0
     else:
         lowest = encode(MIN_SCALE)
         if len(lowest) > max_bytes:
             return lowest, MIN_SCALE
         best, best_scale = lowest, MIN_SCALE
-        lo, hi = MIN_SCALE, estimate
+        low, high = MIN_SCALE, estimate
     for _ in range(SEARCH_ITERATIONS):
-        mid = (lo + hi) / 2
-        if not lo < mid < hi:
+        middle = (low + high) / 2
+        if not low < middle < high:
             break
-        data = encode(mid)
+        data = encode(middle)
         if len(data) <= max_bytes:
-            best, best_scale = data, mid
-            lo = mid
+            best, best_scale = data, middle
+            low = middle
         else:
-            hi = mid
+            high = middle
     return best, best_scale
 
 
-def describe_strategy(colors: int | None, scale: float) -> str:
-    """把策略参数描述为可读文本"""
-    color_note = "真彩色" if colors is None else f"量化 {colors} 色"
+def describe_scale(scale: float) -> str:
+    """把缩放比例描述为可读文本"""
     if scale >= 1.0:
-        return f"{color_note} · 原尺寸"
-    return f"{color_note} · 缩放 {scale * 100:.0f}%"
+        return "原尺寸"
+    return f"缩放 {scale * 100:.0f}%"
 
 
 def format_kb(size: int) -> str:
@@ -319,9 +364,7 @@ def format_kb(size: int) -> str:
     return f"{size / KB:.1f} KB"
 
 
-def run_batch(
-    input_dir: str, output_dir: str, recursive: bool, plan: BatchPlan
-) -> int:
+def run_batch(input_dir: str, output_dir: str, recursive: bool, plan: BatchPlan) -> int:
     """按计划处理全部文件:未超限且格式合规的原样复制,其余压缩转换
 
     返回进程退出码,存在失败或未达标的文件时返回 2
