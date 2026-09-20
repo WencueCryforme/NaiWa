@@ -10,13 +10,14 @@
 字段结构与命名沿用仓库已有 manifest 的写法:name 为 `NaiWa-<dist 下目录相对仓库
 根目录的路径以 - 连接>-manifest`,dist 根级沿用现有字面量;name 描述的是 dist 下
 的路径,与 manifest 自身的存放位置无关。输出为去除空白符的 JSON(分隔符不带空格、
-无行尾换行),条目按名称的 Unicode 码位排序,保证同样内容每次生成结果一致;输出
-目录缺失时自动逐级创建。
+无行尾换行),条目按名称的拼音升序排序(见 pinyin_sort_key),保证同样内容每次
+生成结果一致;输出目录缺失时自动逐级创建。
 
 路径说明:所有路径均以脚本所在目录的上级(仓库根目录)为基准解析,不依赖当前
 工作目录,也不写入任何绝对路径。
 
-依赖:仅标准库,脚本自身即为独立可运行文件。
+依赖:pypinyin 与标准库,脚本自身即为独立可运行文件(不与他人共用模块,需要
+复用的排序键在本文件内自行保留);pypinyin 缺位时在启动阶段报错并给出安装提示。
 
 用法示例:
     python scripts/gen_manifest.py
@@ -29,6 +30,15 @@ import argparse
 import json
 import os
 import sys
+
+try:
+    from pypinyin import Style, lazy_pinyin
+except ImportError:
+    raise SystemExit(
+        "缺少依赖 pypinyin,安装方式:\n"
+        '    python -m pip install "pypinyin==0.55.0"\n'
+        "依赖说明见 scripts/README.md"
+    ) from None
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +54,9 @@ MANIFEST_NAME = "manifest.json"
 
 # JSON 输出为去除空白符的版本:分隔符不带空格,且不写行尾换行
 JSON_SEPARATORS = (",", ":")
+
+# 条目排序使用的拼音样式:常规拼音且不带声调,保证排序结果只取决于名称本身
+PINYIN_STYLE = Style.NORMAL
 
 MANIFEST_NAME_PREFIX = "NaiWa-"
 MANIFEST_NAME_SUFFIX = "-manifest"
@@ -80,27 +93,43 @@ def mirror_path(source_dir: str, mirror_root: str, directory: str) -> str:
     return os.path.join(mirror_root, relative_path, MANIFEST_NAME)
 
 
+def pinyin_sort_key(name: str) -> tuple[list[str], str]:
+    """名称的拼音升序比较键
+
+    汉字逐字转为不带声调的拼音音节,非汉字字符原样保留并参与比较,因此排序结果与
+    中文使用者按名称升序的直觉一致(等价于 Windows 资源管理器的名称排列);拼音
+    相同时以原始名称的码位序作为次键,保证排序结果与目录枚举顺序无关。
+    """
+    return lazy_pinyin(name, style=PINYIN_STYLE), name
+
+
 def list_subdirs(directory: str) -> list[str]:
-    """列出目录下的子目录名,按名称排序,跳过隐藏目录"""
+    """列出目录下的子目录名,按名称的拼音升序排序,跳过隐藏目录"""
     if not os.path.isdir(directory):
         return []
     return sorted(
-        name
-        for name in os.listdir(directory)
-        if not name.startswith(".") and os.path.isdir(os.path.join(directory, name))
+        (
+            name
+            for name in os.listdir(directory)
+            if not name.startswith(".") and os.path.isdir(os.path.join(directory, name))
+        ),
+        key=pinyin_sort_key,
     )
 
 
 def list_files(directory: str) -> list[str]:
-    """列出目录下的文件名,按名称排序,跳过隐藏文件与 manifest.json 自身"""
+    """列出目录下的文件名,按名称的拼音升序排序,跳过隐藏文件与 manifest.json 自身"""
     if not os.path.isdir(directory):
         return []
     return sorted(
-        name
-        for name in os.listdir(directory)
-        if not name.startswith(".")
-        and name != MANIFEST_NAME
-        and os.path.isfile(os.path.join(directory, name))
+        (
+            name
+            for name in os.listdir(directory)
+            if not name.startswith(".")
+            and name != MANIFEST_NAME
+            and os.path.isfile(os.path.join(directory, name))
+        ),
+        key=pinyin_sort_key,
     )
 
 

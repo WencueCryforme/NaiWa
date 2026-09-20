@@ -10,8 +10,8 @@
   /* ---------- 常量(设计细节集中区, 可个性化调整) ---------- */
 
   /* 作者信息(宏常量, 页脚渲染来源) */
-  const AUTHOR = 'JularDepick';
-  const AUTHOR_URL = 'https://github.com/JularDepick';
+  const AUTHOR = 'WencueCryforme';
+  const AUTHOR_URL = 'https://github.com/WencueCryforme';
   const REPO_URL = 'https://github.com/WencueCryforme/NaiWa';
 
   /* 后端跨域地址: 留空表示不启用后端, 点赞与热门统计自动禁用并降级提示;
@@ -26,6 +26,29 @@
 
   /* 无限滚动每页卡片数 */
   const PAGE_SIZE = 12;
+
+  /* 无限滚动触发提前量: 加载哨兵进入视口下方该距离内即加载下一页 */
+  const SCROLL_MARGIN = '400px';
+
+  /* 同一媒体重复打开全屏时的浏览上报冷却期(毫秒), 冷却期内不重复计数 */
+  const VIEW_COOLDOWN = 30000;
+
+  /* 列数可选范围; 窄屏(移动端)上限收紧为 2 列 */
+  const COLS_MIN = 1;
+  const COLS_MAX = 5;
+  const COLS_MAX_MOBILE = 2;
+  const MOBILE_MAX_WIDTH = 767;
+
+  /* 全屏缩放的步进与上下限 */
+  const FS_SCALE_STEP = 1.3;
+  const FS_SCALE_MIN = 0.2;
+  const FS_SCALE_MAX = 10;
+
+  /* 危险操作确认按钮的等待时长(毫秒) */
+  const CONFIRM_TIMEOUT = 3000;
+
+  /* 请求超时毫秒数 */
+  const FETCH_TIMEOUT = 8000;
 
   /* 公告内容: 空字符串则不显示公告栏; 修改内容后所有用户会重新看到公告 */
   const NOTICE = '欢迎来到奶蛙宇宙在线版, 表情包持续更新中';
@@ -52,8 +75,11 @@
     { id: '9 / 16', name: '9:16' }
   ];
 
-  /* 请求超时毫秒数 */
-  const FETCH_TIMEOUT = 8000;
+  /* 窄屏判定, 断点与 main.css 的响应式断点保持一致 */
+  const mobileQuery = window.matchMedia('(max-width: ' + MOBILE_MAX_WIDTH + 'px)');
+  function maxCols() {
+    return mobileQuery.matches ? COLS_MAX_MOBILE : COLS_MAX;
+  }
 
   /* ---------- localStorage 工具 ---------- */
   const store = {
@@ -75,8 +101,15 @@
   const settings = store.get('settings', {
     theme: 'light', cols: 3, ratio: '1 / 1', caption: 1
   });
-  const favorites = store.get('favorites', []);       /* 有序收藏 key 列表 */
+  /* 窄屏下把历史列数收进可选范围, 避免在手机上沿用桌面端的超宽列数 */
+  settings.cols = Math.min(Math.max(Number(settings.cols) || 3, COLS_MIN), maxCols());
+  store.set('settings', settings);
+
+  const favorites = store.get('favorites', []);          /* 有序收藏 key 列表, 新收藏位于最前 */
   const favSet = new Set(favorites);
+  const favNotified = new Set(store.get('favNotified', []));  /* 已上报过后端的收藏 key, 只增不删 */
+  const viewCooldowns = store.get('viewCooldowns', {});       /* key -> 上次浏览上报时间戳 */
+
   let currentView = store.get('currentView', 'home'); /* home/album/favorites/hot/about */
   let currentType = catalog.types.length ? catalog.types[0].name : '';
   let currentAlbum = null;
@@ -84,7 +117,10 @@
   let hotPage = 0;
   let hotList = [];
   let degradeToastShown = false;
-  const albumItems = [];   /* 当前合集的全部条目缓存 */
+  let inited = false;              /* 初始化完成标志, 用于识别"重复进入当前视图" */
+  let isLoadingPage = false;       /* 分页加载并发锁 */
+  let sentinel = null;             /* 无限滚动哨兵元素 */
+  const albumItems = [];           /* 当前合集的全部条目缓存 */
   const hotItems = [];
 
   /* ---------- DOM 引用 ---------- */
@@ -93,9 +129,9 @@
     tabNav: $('tabNav'), typeNav: $('typeNav'), albumNav: $('albumNav'),
     crumbBar: $('crumbBar'), crumbHome: $('crumbHome'), crumbType: $('crumbType'), crumbAlbum: $('crumbAlbum'),
     noticeBar: $('noticeBar'), noticeText: $('noticeText'), noticeClose: $('noticeClose'),
-    albumGrid: $('albumGrid'), albumLoadIndicator: $('albumLoadIndicator'), albumNoMore: $('albumNoMore'),
+    albumGrid: $('albumGrid'), albumEmpty: $('albumEmpty'), albumNoMore: $('albumNoMore'),
     favoritesGrid: $('favoritesGrid'), favoritesEmpty: $('favoritesEmpty'),
-    hotGrid: $('hotGrid'), hotEmpty: $('hotEmpty'), hotNoMore: $('hotNoMore'),
+    hotGrid: $('hotGrid'), hotEmpty: $('hotEmpty'), hotEmptyText: $('hotEmptyText'), hotNoMore: $('hotNoMore'),
     aboutBuildTime: $('aboutBuildTime'), aboutRepo: $('aboutRepo'), siteFooter: $('siteFooter'),
     btnBackTop: $('btnBackTop'),
     fullscreenModal: $('fullscreenModal'), fullscreenClose: $('fullscreenClose'),
@@ -125,7 +161,7 @@
    *      批量查询统计; 同名参数必须用 media[] 数组语法, PHP 才会解析为数组
    *      返回 { stats: [{ media, views, likes, favorites }] }
    * GET  {BACKEND_API}/stats.php?hot&limit=<数量>
-   *      返回 { hot: [{ media, views, likes, favorites, score }] }
+   *      返回 { hot: [{ media, views, likes, favorites, score }] }, media 为原始键
    * POST {BACKEND_API}/stats.php  请求体 { media, action }
    *      action 取值 view / like / favorite, 返回 { ok, stats }
    * media 为 "类型/合集/文件" 逐段百分号编码后的值 */
@@ -154,6 +190,22 @@
     if (!backendOn) return;
     apiPost('/stats.php', { media: encodeKey(key), action: action })
       .catch(() => { /* 静默失败, 本地体验不受影响 */ });
+  }
+  /* 浏览上报: 同一媒体在冷却期内重复打开只计一次 */
+  function recordView(key) {
+    if (!backendOn) return;
+    const now = Date.now();
+    if (now - (viewCooldowns[key] || 0) < VIEW_COOLDOWN) return;
+    viewCooldowns[key] = now;
+    store.set('viewCooldowns', viewCooldowns);
+    reportAction(key, 'view');
+  }
+  /* 收藏上报: 同一媒体只上报一次, 取消收藏不抵消已计数值 */
+  function reportFavorite(key) {
+    if (!backendOn || favNotified.has(key)) return;
+    favNotified.add(key);
+    store.set('favNotified', Array.from(favNotified));
+    reportAction(key, 'favorite');
   }
   function fetchHot() {
     if (!backendOn) return Promise.reject(new Error('backend off'));
@@ -227,6 +279,11 @@
     img.loading = 'lazy';
     img.alt = item.file;
     img.src = mediaUrl(item);
+    /* 素材缺失或读取失败时给出可见占位, 避免留下浏览器默认的裂图 */
+    img.addEventListener('error', () => {
+      wrap.classList.add('thumb-failed');
+      img.removeAttribute('src');
+    });
     wrap.appendChild(img);
 
     const fav = document.createElement('button');
@@ -298,30 +355,30 @@
     albumItems.push.apply(albumItems, albumItemsOf(typeName, albumName));
     albumPage = 0;
     dom.albumGrid.innerHTML = '';
+    dom.albumEmpty.hidden = true;
     dom.albumNoMore.hidden = true;
-    dom.albumLoadIndicator.hidden = false;
     dom.crumbType.textContent = typeName;
     dom.crumbAlbum.textContent = albumName;
     switchView('album');
     loadAlbumPage();
   }
   function loadAlbumPage() {
+    if (isLoadingPage) return;
+    isLoadingPage = true;
     const start = albumPage * PAGE_SIZE;
-    if (start >= albumItems.length) {
-      dom.albumLoadIndicator.hidden = true;
-      dom.albumNoMore.hidden = albumItems.length === 0;
-      return;
+    if (start < albumItems.length) {
+      albumItems.slice(start, start + PAGE_SIZE).forEach((item) => {
+        dom.albumGrid.appendChild(createMediaCard(item));
+      });
+      albumPage += 1;
+      applySettings();
     }
-    const slice = albumItems.slice(start, start + PAGE_SIZE);
-    slice.forEach((item) => dom.albumGrid.appendChild(createMediaCard(item)));
-    albumPage += 1;
-    if (albumPage * PAGE_SIZE >= albumItems.length) {
-      dom.albumLoadIndicator.hidden = true;
-      dom.albumNoMore.hidden = albumItems.length === 0;
-    } else {
-      dom.albumLoadIndicator.hidden = true;
-    }
-    applySettings();
+    const allLoaded = albumPage * PAGE_SIZE >= albumItems.length;
+    /* 空合集与到底提示互斥, 避免空合集也显示"已经到底了" */
+    dom.albumEmpty.hidden = albumItems.length > 0;
+    dom.albumNoMore.hidden = albumItems.length === 0 || !allLoaded;
+    isLoadingPage = false;
+    if (!allLoaded) armSentinel();
   }
 
   /* ---------- 收藏视图 ---------- */
@@ -333,9 +390,9 @@
       toast('已取消收藏');
     } else {
       favSet.add(item.key);
-      favorites.push(item.key);
+      favorites.unshift(item.key);   /* 新收藏置顶, 与收藏视图顺序一致 */
       toast('已收藏');
-      reportAction(item.key, 'favorite');
+      reportFavorite(item.key);
     }
     store.set('favorites', favorites);
     if (currentView === 'favorites') renderFavorites();
@@ -358,8 +415,6 @@
       clear.className = 'clear-btn';
       clear.textContent = '清空收藏';
       clear.addEventListener('click', () => {
-        /* 确认等待期内忽略外层重复进入, 只响应确认按钮流程 */
-        if (clear.classList.contains('confirming')) return;
         confirmButton(clear, '确认清空', () => {
           favSet.clear();
           favorites.length = 0;
@@ -375,33 +430,25 @@
     applySettings();
   }
 
-  /* ---------- 危险操作确认: 按钮替换流程(3 秒内确认, 超时回归) ---------- */
+  /* ---------- 危险操作确认: 按钮替换流程 ----------
+     首次点击替换为确认文案, 等待期内再次点击才执行, 超时或点击别处即回归初始状态 */
   function confirmButton(btn, confirmText, onConfirm) {
-    const original = btn.textContent;
+    if (btn.classList.contains('confirming')) {
+      resetConfirmButton(btn);
+      onConfirm();
+      return;
+    }
+    btn.dataset.label = btn.textContent;
     btn.textContent = confirmText;
     btn.classList.add('confirming');
-    btn.disabled = true;
-    let done = false;
-    const handler = () => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      btn.removeEventListener('click', handler);
-      onConfirm();
-    };
-    const timer = setTimeout(() => {
-      if (done) return;
-      done = true;
-      btn.removeEventListener('click', handler);
-      btn.textContent = original;
-      btn.classList.remove('confirming');
-      btn.disabled = false;
-    }, 3000);
-    /* 替换完成后立即重新可点, 等待第二次点击确认 */
-    requestAnimationFrame(() => {
-      btn.disabled = false;
-      btn.addEventListener('click', handler, { once: true });
-    });
+    btn._confirmTimer = setTimeout(() => resetConfirmButton(btn), CONFIRM_TIMEOUT);
+  }
+  function resetConfirmButton(btn) {
+    if (!btn.classList.contains('confirming')) return;
+    clearTimeout(btn._confirmTimer);
+    btn._confirmTimer = null;
+    btn.classList.remove('confirming');
+    btn.textContent = btn.dataset.label || '';
   }
 
   /* ---------- 热门视图(依赖后端, 禁用时降级) ---------- */
@@ -410,12 +457,12 @@
     dom.hotNoMore.hidden = true;
     if (!backendOn) {
       dom.hotEmpty.hidden = false;
-      $('hotEmptyText').textContent = '热门统计需要后端服务, 当前未启用';
+      dom.hotEmptyText.textContent = '热门统计需要后端服务, 当前未启用';
       degradeNotice();
       return;
     }
     dom.hotEmpty.hidden = false;
-    $('hotEmptyText').textContent = '热门数据加载中';
+    dom.hotEmptyText.textContent = '热门数据加载中';
     fetchHot().then((list) => {
       dom.hotEmpty.hidden = true;
       hotList.length = 0;
@@ -424,32 +471,32 @@
       loadHotPage();
     }).catch(() => {
       dom.hotEmpty.hidden = false;
-      $('hotEmptyText').textContent = '热门数据获取失败, 请稍后再试';
+      dom.hotEmptyText.textContent = '热门数据获取失败, 请稍后再试';
       toast('热门数据获取失败', 'warn');
     });
   }
   function loadHotPage() {
+    if (isLoadingPage) return;
+    isLoadingPage = true;
     const start = hotPage * PAGE_SIZE;
-    if (start >= hotList.length) {
-      dom.hotNoMore.hidden = hotList.length === 0;
-      if (hotList.length === 0) {
-        dom.hotEmpty.hidden = false;
-        $('hotEmptyText').textContent = '暂无热门数据';
-      }
-      return;
+    let appended = 0;
+    if (start < hotList.length) {
+      hotList.slice(start, start + PAGE_SIZE).forEach((row) => {
+        /* 后端返回的 media 已是原始键, 无需再次解码 */
+        const item = itemByKey(row.media);
+        if (!item) return;
+        appended += 1;
+        dom.hotGrid.appendChild(createMediaCard(item, { rank: String(start + appended) }));
+      });
+      hotPage += 1;
+      applySettings();
     }
-    hotList.slice(start, start + PAGE_SIZE).forEach((row, i) => {
-      const item = itemByKey(decodeKey(row.media));
-      if (!item) return;
-      dom.hotGrid.appendChild(createMediaCard(item, { rank: String(start + i + 1) }));
-    });
-    hotPage += 1;
-    if (hotPage * PAGE_SIZE < hotList.length) dom.hotNoMore.hidden = true;
-    else dom.hotNoMore.hidden = hotList.length === 0;
-    applySettings();
-  }
-  function decodeKey(enc) {
-    return enc.split('/').map(decodeURIComponent).join('/');
+    const allLoaded = hotPage * PAGE_SIZE >= hotList.length;
+    dom.hotEmpty.hidden = hotList.length > 0;
+    if (hotList.length === 0) dom.hotEmptyText.textContent = '暂无热门数据';
+    dom.hotNoMore.hidden = !allLoaded || hotList.length === 0;
+    isLoadingPage = false;
+    if (!allLoaded) armSentinel();
   }
 
   /* ---------- 关于视图 ---------- */
@@ -466,8 +513,13 @@
 
   /* ---------- 视图切换 ---------- */
   const VIEWS = ['home', 'album', 'favorites', 'hot', 'about'];
-  function switchView(name) {
+  function switchView(name, force) {
     if (VIEWS.indexOf(name) < 0) name = 'home';
+    /* 重复进入当前视图只回到顶部, 不重新渲染也不重新请求; 显式要求重载时照常渲染 */
+    if (!force && inited && name === currentView && name !== 'album') {
+      window.scrollTo({ top: 0 });
+      return;
+    }
     currentView = name;
     store.set('currentView', name === 'album' ? 'home' : name);
     VIEWS.forEach((v) => {
@@ -485,32 +537,57 @@
     window.scrollTo({ top: 0 });
   }
 
-  /* ---------- 全屏查看 ---------- */
-  let zoomLevel = 1;
+  /* ---------- 全屏查看(缩放 + 拖拽平移) ---------- */
+  let fsScale = 1;
+  let fsOffsetX = 0;
+  let fsOffsetY = 0;
+  let fsDragging = false;
+  let fsDragOrigin = null;
+  let fsPinchDist = 0;
+
+  function applyFsTransform() {
+    dom.fullscreenMedia.style.transform =
+      'translate(' + fsOffsetX + 'px, ' + fsOffsetY + 'px) scale(' + fsScale + ')';
+    dom.fullscreenMedia.classList.toggle('grabbing', fsDragging);
+  }
+  function resetFsTransform() {
+    fsScale = 1;
+    fsOffsetX = 0;
+    fsOffsetY = 0;
+    fsDragging = false;
+    fsDragOrigin = null;
+    fsPinchDist = 0;
+    applyFsTransform();
+  }
+  function zoomStep(scale) {
+    fsScale = Math.min(Math.max(scale, FS_SCALE_MIN), FS_SCALE_MAX);
+    applyFsTransform();
+  }
   function openFullscreen(item) {
-    zoomLevel = 1;
-    dom.fullscreenMedia.classList.remove('zoomed');
-    dom.fullscreenMedia.style.transform = 'scale(1)';
+    resetFsTransform();
     dom.fullscreenMedia.src = mediaUrl(item);
     dom.fullscreenMedia.alt = item.file;
     dom.fullscreenCaption.textContent = item.type + ' / ' + item.album + ' / ' + item.file;
     dom.fullscreenModal.hidden = false;
     document.body.style.overflow = 'hidden';
-    reportAction(item.key, 'view');
+    recordView(item.key);
   }
   function closeFullscreen() {
     dom.fullscreenModal.hidden = true;
-    dom.fullscreenMedia.src = '';
+    dom.fullscreenMedia.removeAttribute('src');
     document.body.style.overflow = '';
-  }
-  function applyZoom() {
-    dom.fullscreenMedia.style.transform = 'scale(' + zoomLevel + ')';
+    resetFsTransform();
   }
 
   /* ---------- 设置面板 ---------- */
   function renderSettings() {
+    const limit = maxCols();
     dom.colSwitch.querySelectorAll('.col-btn').forEach((b) => {
-      b.classList.toggle('active', Number(b.dataset.col) === settings.cols);
+      const n = Number(b.dataset.col);
+      const off = n > limit;         /* 窄屏下禁用超范围列数 */
+      b.disabled = off;
+      b.classList.toggle('disabled', off);
+      b.classList.toggle('active', n === settings.cols);
     });
     dom.ratioSwitch.innerHTML = '';
     RATIOS.forEach((r) => {
@@ -545,22 +622,35 @@
     dom.settingsPanel.hidden = true;
   }
 
-  /* ---------- 无限滚动 ---------- */
-  const sentinel = document.createElement('div');
-  sentinel.id = 'infiniteSentinel';
-  const observer = new IntersectionObserver((entries) => {
+  /* ---------- 无限滚动(加载哨兵) ---------- */
+  const sentinelObserver = new IntersectionObserver((entries) => {
     if (!entries[0].isIntersecting) return;
     if (currentView === 'album' && albumPage * PAGE_SIZE < albumItems.length) {
       loadAlbumPage();
     } else if (currentView === 'hot' && backendOn && hotPage * PAGE_SIZE < hotList.length) {
       loadHotPage();
     }
-  }, { rootMargin: '400px' });
+  }, { rootMargin: SCROLL_MARGIN });
+
+  /* 把哨兵挂到文档末尾并重新观察; 每页加载后重新观察可强制投递一次初始相交状态,
+     否则内容增长而哨兵始终未离开视口时回调不再触发, 分页会停在半途 */
+  function armSentinel() {
+    if (!sentinel) {
+      sentinel = document.createElement('div');
+      sentinel.id = 'infiniteSentinel';
+      sentinel.style.height = '1px';
+      document.body.appendChild(sentinel);
+    }
+    sentinelObserver.unobserve(sentinel);
+    sentinelObserver.observe(sentinel);
+  }
 
   /* ---------- 事件绑定 ---------- */
   function bindEvents() {
     dom.tabNav.querySelectorAll('.tab-btn').forEach((b) => {
       b.addEventListener('click', () => switchView(b.dataset.view));
+      /* 双击当前 tab 重新渲染当前视图(热门视图借此重新请求数据) */
+      b.addEventListener('dblclick', () => switchView(b.dataset.view, true));
     });
     dom.brandHome.addEventListener('click', () => switchView('home'));
     dom.crumbHome.addEventListener('click', () => switchView('home'));
@@ -572,13 +662,45 @@
     dom.fullscreenModal.addEventListener('click', (e) => {
       if (e.target === dom.fullscreenModal || e.target === dom.fullscreenWrap) closeFullscreen();
     });
-    dom.zoomIn.addEventListener('click', () => { zoomLevel = Math.min(5, zoomLevel * 1.25); applyZoom(); });
-    dom.zoomOut.addEventListener('click', () => { zoomLevel = Math.max(0.2, zoomLevel / 1.25); applyZoom(); });
-    dom.zoomReset.addEventListener('click', () => {
-      zoomLevel = 1;
-      dom.fullscreenMedia.classList.toggle('zoomed');
-      dom.fullscreenMedia.style.transform = 'scale(1)';
+    dom.zoomIn.addEventListener('click', () => zoomStep(fsScale * FS_SCALE_STEP));
+    dom.zoomOut.addEventListener('click', () => zoomStep(fsScale / FS_SCALE_STEP));
+    dom.zoomReset.addEventListener('click', resetFsTransform);
+    /* 滚轮缩放 */
+    dom.fullscreenModal.addEventListener('wheel', (e) => {
+      if (dom.fullscreenModal.hidden) return;
+      e.preventDefault();
+      zoomStep(e.deltaY < 0 ? fsScale * FS_SCALE_STEP : fsScale / FS_SCALE_STEP);
+    }, { passive: false });
+    /* 缩放后拖拽平移 */
+    dom.fullscreenMedia.addEventListener('mousedown', (e) => {
+      if (fsScale <= 1) return;
+      fsDragging = true;
+      fsDragOrigin = { x: e.clientX - fsOffsetX, y: e.clientY - fsOffsetY };
+      applyFsTransform();
+      e.preventDefault();
     });
+    document.addEventListener('mousemove', (e) => {
+      if (!fsDragging) return;
+      fsOffsetX = e.clientX - fsDragOrigin.x;
+      fsOffsetY = e.clientY - fsDragOrigin.y;
+      applyFsTransform();
+    });
+    document.addEventListener('mouseup', () => {
+      if (!fsDragging) return;
+      fsDragging = false;
+      applyFsTransform();
+    });
+    /* 双指缩放(移动端) */
+    dom.fullscreenModal.addEventListener('touchstart', (e) => {
+      fsPinchDist = e.touches.length === 2 ? touchDistance(e) : 0;
+    }, { passive: true });
+    dom.fullscreenModal.addEventListener('touchmove', (e) => {
+      if (e.touches.length !== 2) return;
+      e.preventDefault();
+      const dist = touchDistance(e);
+      if (fsPinchDist > 0) zoomStep(fsScale * (dist / fsPinchDist));
+      fsPinchDist = dist;
+    }, { passive: false });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         if (!dom.fullscreenModal.hidden) closeFullscreen();
@@ -591,6 +713,7 @@
     dom.settingsClose.addEventListener('click', closeSettings);
     dom.colSwitch.querySelectorAll('.col-btn').forEach((b) => {
       b.addEventListener('click', () => {
+        if (Number(b.dataset.col) > maxCols()) return;
         settings.cols = Number(b.dataset.col);
         store.set('settings', settings);
         renderSettings();
@@ -614,12 +737,29 @@
       dom.guideLayer.hidden = true;
       store.set('guideDone', true);
     });
-    window.addEventListener('scroll', () => {
-      dom.btnBackTop.classList.toggle('show', window.scrollY > 300);
+    /* 点击设置面板与齿轮之外的区域关闭面板 */
+    document.addEventListener('click', (e) => {
+      if (dom.settingsPanel.hidden) return;
+      if (dom.settingsPanel.contains(e.target) || dom.settingsToggle.contains(e.target)) return;
+      closeSettings();
     });
+    /* 点击确认按钮之外的区域立即取消二次确认, 回归初始状态 */
+    document.addEventListener('click', (e) => {
+      document.querySelectorAll('.confirming').forEach((el) => {
+        if (!el.contains(e.target)) resetConfirmButton(el);
+      });
+    });
+    window.addEventListener('scroll', () => {
+      dom.btnBackTop.classList.toggle('show', window.scrollY > window.innerHeight);
+    }, { passive: true });
     dom.btnBackTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
-    document.body.appendChild(sentinel);
-    observer.observe(sentinel);
+    armSentinel();
+  }
+  function touchDistance(e) {
+    return Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
   }
 
   /* ---------- 页脚与公告 ---------- */
@@ -634,7 +774,15 @@
     a.textContent = AUTHOR;
     span.appendChild(a);
     const rest = document.createElement('span');
-    rest.textContent = ' | 内容以 ' + (buildInfo.repo || REPO_URL).replace('https://', '') + ' 仓库为准';
+    rest.textContent = ' | 内容以 ';
+    const repoUrl = buildInfo.repo || REPO_URL;
+    const repoLink = document.createElement('a');
+    repoLink.href = repoUrl;
+    repoLink.target = '_blank';
+    repoLink.rel = 'noopener';
+    repoLink.textContent = repoUrl.replace('https://', '');
+    rest.appendChild(repoLink);
+    rest.appendChild(document.createTextNode(' 仓库为准'));
     dom.siteFooter.appendChild(span);
     dom.siteFooter.appendChild(rest);
   }
@@ -646,6 +794,8 @@
 
   /* ---------- 初始化 ---------- */
   function init() {
+    /* 刷新页面时回到顶部, 不恢复上次滚动位置 */
+    if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
     applySettings();
     renderFooter();
     renderNotice();
@@ -657,6 +807,15 @@
       const hotTab = dom.tabNav.querySelector('[data-view="hot"]');
       if (hotTab) hotTab.classList.add('disabled');
     }
+    /* 屏幕宽度跨断点时重新收敛列数 */
+    mobileQuery.addEventListener('change', () => {
+      settings.cols = Math.min(settings.cols, maxCols());
+      store.set('settings', settings);
+      renderSettings();
+      applySettings();
+    });
+    dom.btnBackTop.classList.toggle('show', window.scrollY > window.innerHeight);
+    inited = true;
   }
 
   init();

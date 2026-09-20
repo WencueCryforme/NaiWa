@@ -21,6 +21,7 @@
 | Python | 3.9 及以上 | 脚本使用 `X \| None` 等现代类型标注语法 |
 | opencv-python | 4.11 及以上 | 4.11 起提供 Animation API(`imreadanimation` / `imwriteanimation`),gif 压缩必需 |
 | numpy | 由 opencv-python 自动安装 | 脚本以 numpy 数组承载图像数据 |
+| pypinyin | 固定 0.55.0 | manifest 与 catalog 的条目按名称的拼音升序排序,排序结果取决于该库词典,固定版本以保证同一输入再次生成逐字节一致 |
 
 ## 安装指令
 
@@ -38,6 +39,12 @@ pip install --upgrade "opencv-python>=4.11"
 
 ```bash
 pip install --upgrade "opencv-python-headless>=4.11"
+```
+
+压缩脚本之外的 manifest 与 catalog 生成脚本还需要 pypinyin 用于排序,按固定版本安装(版本与工作流一致):
+
+```bash
+pip install --upgrade "pypinyin==0.55.0"
 ```
 
 ## 安装后自检
@@ -85,7 +92,7 @@ scripts\runPython.bat img_resize.py -o .output -R --max-size 400
 
 ## manifest 与 catalog
 
-两个脚本都是**自包含单文件**(不共用模块、互不 import),只需 Python 标准库,不依赖 opencv-python;所有路径均以仓库根目录为基准解析,与当前工作目录无关;输出目录缺失时自动逐级创建。
+两个脚本都是**自包含单文件**(不共用模块、互不 import),除排序用的 pypinyin 外只需 Python 标准库,不依赖 opencv-python;所有路径均以仓库根目录为基准解析,与当前工作目录无关;输出目录缺失时自动逐级创建。
 
 ```bash
 python scripts/gen_manifest.py    # 按 dist 层级生成 catalog/dist/ 下各级 manifest.json
@@ -110,7 +117,9 @@ python scripts/gen_catalog.py     # 合并为 catalog/catalog.<类型>.json
 
 - `name` 字段为 `NaiWa-<dist 下目录相对仓库根目录的路径,以 - 连接>-manifest`;dist 根级字面量为 `NaiWa-dist-types-manifest`(描述 dist 根级的类型列表),该字段描述的是 dist 下的路径,与 manifest 自身的存放位置无关
 - 两个脚本的产物均为**去除空白符**的 JSON(分隔符不带空格、无行尾换行),便于体积与 diff 稳定
-- 条目按名称的 Unicode 码位排序,同样内容每次生成结果逐字节一致;因此生成后的顺序与手工填写的顺序可能不同
+- 条目按名称的拼音升序排序: 汉字逐字取不带声调的拼音音节,非汉字字符原样参与比较,拼音相同时以原始名称的码位序为准;该顺序与中文读者按名称升序的直觉、Windows 资源管理器的名称排列一致,同样内容每次生成结果逐字节一致
+- 产物一律按上述规则重排,manifest 内手工填写的顺序不会被保留;`gen_catalog.py` 也自行排序,不沿用 manifest 的顺序
+- 排序结果取决于 pypinyin 的词典,因此该库固定为 0.55.0(工作流与本说明一致);升级版本可能改变条目顺序,升级后需重新生成 catalog
 - 合集级 manifest 只登记文件,不登记 `manifest.json` 自身,跳过隐藏文件(以 `.` 开头)
 - `gen_manifest.py` 会检查 dist 本体内是否残留旧位置的 manifest,发现时列出路径提醒删除
 - `gen_catalog.py` 发现任何一级 manifest 缺失时会列出缺失路径并返回退出码 2,先运行 `gen_manifest.py` 即可

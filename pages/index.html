@@ -50,11 +50,10 @@
 
     <!-- 合集浏览: 懒加载媒体网格 -->
     <section class="view" id="viewAlbum" hidden>
-      <div class="grid-container" id="albumGrid"></div>
-      <div class="load-indicator" id="albumLoadIndicator" hidden>
-        <div class="load-spinner"></div>
-        <span>加载中</span>
+      <div class="view-empty" id="albumEmpty" hidden>
+        <p>该合集暂无表情包</p>
       </div>
+      <div class="grid-container" id="albumGrid"></div>
       <div class="no-more" id="albumNoMore" hidden>已经到底了</div>
     </section>
 

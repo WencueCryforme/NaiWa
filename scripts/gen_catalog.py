@@ -16,13 +16,16 @@ manifest 由 gen_manifest.py 生成,按 dist 的层级镜像存放于 catalog/di
 {"name":"NaiWa-catalog-<类型>","type":"<类型>","albums":[{"name":"<合集>","files":["<文件名>"]}]}
 ```
 
-输出同样为去除空白符的 JSON,输出目录缺失时自动创建。缺失任何一级 manifest 时
-给出提示并返回退出码 2,此时先运行 gen_manifest.py 生成 manifest 即可。
+各级条目均按名称的拼音升序排序(见 pinyin_sort_key),不沿用 manifest 内的顺序,
+因此上游 manifest 即使顺序有误,产物仍是升序;输出同样为去除空白符的 JSON,输出
+目录缺失时自动创建。缺失任何一级 manifest 时给出提示并返回退出码 2,此时先运行
+gen_manifest.py 生成 manifest 即可。
 
 路径说明:所有路径均以脚本所在目录的上级(仓库根目录)为基准解析,不依赖当前
 工作目录,也不写入任何绝对路径。
 
-依赖:仅标准库,脚本自身即为独立可运行文件。
+依赖:pypinyin 与标准库,脚本自身即为独立可运行文件(不与他人共用模块,需要
+复用的排序键在本文件内自行保留);pypinyin 缺位时在启动阶段报错并给出安装提示。
 
 用法示例:
     python scripts/gen_catalog.py
@@ -35,6 +38,15 @@ import argparse
 import json
 import os
 import sys
+
+try:
+    from pypinyin import Style, lazy_pinyin
+except ImportError:
+    raise SystemExit(
+        "缺少依赖 pypinyin,安装方式:\n"
+        '    python -m pip install "pypinyin==0.55.0"\n'
+        "依赖说明见 scripts/README.md"
+    ) from None
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +63,9 @@ MANIFEST_NAME = "manifest.json"
 
 # JSON 输出为去除空白符的版本:分隔符不带空格,且不写行尾换行
 JSON_SEPARATORS = (",", ":")
+
+# 条目排序使用的拼音样式:常规拼音且不带声调,保证排序结果只取决于名称本身
+PINYIN_STYLE = Style.NORMAL
 
 CATALOG_NAME_PREFIX = "NaiWa-catalog-"
 CATALOG_FILE_PREFIX = "catalog."
@@ -83,6 +98,16 @@ def mirror_path(source_dir: str, mirror_root: str, directory: str) -> str:
     if relative_path == os.curdir:
         return os.path.join(mirror_root, MANIFEST_NAME)
     return os.path.join(mirror_root, relative_path, MANIFEST_NAME)
+
+
+def pinyin_sort_key(name: str) -> tuple[list[str], str]:
+    """名称的拼音升序比较键
+
+    汉字逐字转为不带声调的拼音音节,非汉字字符原样保留并参与比较,因此排序结果与
+    中文使用者按名称升序的直觉一致(等价于 Windows 资源管理器的名称排列);拼音
+    相同时以原始名称的码位序作为次键,保证排序结果与目录枚举顺序无关。
+    """
+    return lazy_pinyin(name, style=PINYIN_STYLE), name
 
 
 def read_json(path: str):
@@ -167,7 +192,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     missing: list[str] = []
-    types = read_manifest(dist_dir, manifest_root, dist_dir, missing)
+    types = sorted(
+        read_manifest(dist_dir, manifest_root, dist_dir, missing), key=pinyin_sort_key
+    )
     if missing:
         for path in missing:
             sys.stderr.write(f"[缺失] {path}\n")
@@ -180,14 +207,19 @@ def main(argv: list[str] | None = None) -> int:
     written: list[tuple[str, int, int]] = []
     for type_name in types:
         type_dir = os.path.join(dist_dir, type_name)
-        albums = read_manifest(dist_dir, manifest_root, type_dir, missing)
+        albums = sorted(
+            read_manifest(dist_dir, manifest_root, type_dir, missing), key=pinyin_sort_key
+        )
         album_entries = []
         for album_name in albums:
             album_dir = os.path.join(type_dir, album_name)
             album_entries.append(
                 {
                     "name": album_name,
-                    "files": read_manifest(dist_dir, manifest_root, album_dir, missing),
+                    "files": sorted(
+                        read_manifest(dist_dir, manifest_root, album_dir, missing),
+                        key=pinyin_sort_key,
+                    ),
                 }
             )
 
