@@ -792,42 +792,6 @@ def render_type_index_page(catalog_data: dict, type_name: str, build_time: str) 
     return "\n".join(head + body) + "\n"
 
 
-def build_site_map_markup(catalog_data: dict) -> str:
-    """站点级语义化清单: 列出全部类型、合集与素材的可抓取链接, 注入 index.html"""
-    parts = []
-    for t in catalog_data.get("types", []):
-        type_name = t.get("name", "")
-        if not type_name:
-            continue
-        label = type_label(type_name)
-        album_items = []
-        for album in t.get("albums", []):
-            album_name = album.get("name", "")
-            if not album_name:
-                continue
-            file_items = []
-            for f in album.get("files", []):
-                stem = os.path.splitext(f)[0]
-                file_items.append(
-                    '<li><a href="%s">%s</a> <span class="seo-kind">%s</span></li>'
-                    % (html.escape(media_rel_url(item_key(type_name, album_name, f)), quote=True),
-                       html.escape(stem), media_kind(f))
-                )
-            album_items.append(
-                '<li><a href="%s">%s</a><span class="seo-count">%d 个资源</span>'
-                '<ul class="seo-file-list">%s</ul></li>'
-                % (html.escape(album_href(type_name, album_name), quote=True),
-                   html.escape(album_name), len(album.get("files", [])), "".join(file_items))
-            )
-        parts.append(
-            '<section class="seo-type-block">'
-            '<h3 id="type-%s">%s</h3>'
-            '<ul class="seo-album-list">%s</ul>'
-            "</section>" % (html.escape(type_name, quote=True), html.escape(label), "".join(album_items))
-        )
-    return "".join(parts)
-
-
 def inject_index_seo(output_dir: str, catalog_data: dict, build_time: str, version: str) -> dict:
     """把首页级 SEO 内容注入产物 index.html,返回注入项计数"""
     index_path = os.path.join(output_dir, "index.html")
@@ -913,18 +877,8 @@ def inject_index_seo(output_dir: str, catalog_data: dict, build_time: str, versi
     else:
         meta_count = 0
 
-    # 4) 站点地图区替换占位注释,内容为空时给出兜底提示
-    markup = build_site_map_markup(catalog_data)
-    if "<!-- SEO_SITE_MAP -->" in text:
-        if not markup:
-            markup = '<p class="seo-empty">站点素材正在整理中。</p>'
-        text = text.replace("<!-- SEO_SITE_MAP -->", markup, 1)
-        list_count = 1
-    else:
-        list_count = 0
-
     write_text(index_path, text)
-    return {"meta": meta_count, "list": list_count, "types": type_names, "total": total}
+    return {"meta": meta_count, "types": type_names, "total": total}
 
 
 def write_album_pages(output_dir: str, catalog_data: dict, build_time: str) -> list:
@@ -1124,7 +1078,7 @@ def build(template_dir: str, media_source_dir: str, output_dir: str, catalog_dir
     media_count, media_root = copy_media(output_dir, media_source_dir)
     stale = list_stale_files(output_dir, media_source_dir)
 
-    # SEO 资产: 先注入首页元数据与站点地图, 再生成类型索引页与合集预渲染页,
+    # SEO 资产: 先注入首页元数据, 再生成类型索引页与合集预渲染页,
     # 最后由汇总的 URL 集合写出 robots.txt 与 sitemap.xml
     seo = inject_index_seo(output_dir, catalog_data, build_time, version)
     album_pages = write_album_pages(output_dir, catalog_data, build_time)
@@ -1140,8 +1094,8 @@ def build(template_dir: str, media_source_dir: str, output_dir: str, catalog_dir
     print("[完成] 数据文件 %s(构建时间 %s)" % (data_path, build_time))
     print("[完成] 随机后缀 %s,index.html 引用改写 %d 处" % (suffix, replaced))
     print("[完成] 媒体根目录 %s" % media_root)
-    print("[SEO] 首页注入 meta 与结构化数据 %d 项, 站点地图区 %d 处; 类型: %s"
-          % (seo["meta"], seo["list"], seo.get("types", "")))
+    print("[SEO] 首页注入 meta 与结构化数据 %d 项; 类型: %s"
+          % (seo["meta"], seo.get("types", "")))
     print("[SEO] 预渲染页 %d 个(类型索引页与合集内容页)" % len(album_pages))
     print("[SEO] %s 与 %s 已写出" % (robots_path, sitemap_path))
     for path in album_pages:

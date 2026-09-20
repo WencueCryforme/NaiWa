@@ -147,6 +147,21 @@ python scripts/build_pages.py    # 读取 catalog 与 pages/ 模板,生成 pages
 - 媒体 URL 的中文百分号编码由前端 `main.js` 运行时完成,数据文件保存原始文件名
 - 当 main 分支的 dist 目录有 push 时,入口工作流会在生成 catalog 之后自动调用本脚本并把 `pages/dist/` 部署到 GitHub Pages
 
+### 门户卡片结构
+
+`pages/main.js` 的 `MediaCard` 类负责构建媒体卡片,结构与项目内参考实现一致,自上而下分三层:
+
+| 层 | 类名 | 说明 |
+|:---:|:---:|:---|
+| 标签横幅 | `card-label-banner` | 悬浮于媒体区域顶部,展示素材所属合集;由设置项 `settings.caption` 经 `body.hide-label-banner` 控制显隐 |
+| 媒体区域 | `card-media-wrap` | 承载图片/视频/音频与卡片内播放控件,`aspect-ratio` 提供高度兜底 |
+| 操作栏 | `control-bar` | 位于卡片底部,与媒体区域分离;按钮由 `createCtrlBtn` 生成 |
+
+- 操作栏按钮依次为浏览、点赞、收藏、全屏、分享;每个按钮纵向排布 `ctrl-icon` 图标与 `ctrl-count` 计数
+- 浏览按钮为只读展示(`.ctrl-btn-static`),不接受点击;点赞与收藏各带 `active-like` / `active-fav` 激活态
+- 计数取自后端统计缓存 `statsCache`;后端未启用时以本地点赞/收藏状态兜底,保证激活态与数字自洽;点击时先做本地乐观增减,后端返回后由 `syncCounts` 覆盖为新基准
+- 文件名不再以独立文本行展示,改由媒体区域的 `title` 悬停提示承担
+
 ### 搜索引擎优化资产
 
 门户是客户端渲染的单页应用,初始 HTML 只有一个空容器。不保证执行 JavaScript 的爬虫(含多数 AI 检索爬虫)因此看不到任何素材名、合集名与内容链接。本脚本把全部内容在构建期落进 HTML,产出以下资产:
@@ -158,7 +173,7 @@ python scripts/build_pages.py    # 读取 catalog 与 pages/ 模板,生成 pages
 | `pages/dist/<类型>/index.html` | 类型索引页,列出该类型全部合集与资源数 |
 | `pages/dist/<类型>/<合集>/index.html` | 合集预渲染页,内含 h1、带 `alt` 的素材缩略图、媒体直链、同类型其他合集的真实 `a` 标签内链与面包屑 |
 
-- `index.html` 由构建脚本注入 canonical、Open Graph、Twitter 卡片、`WebSite` 与 `CollectionPage` 结构化数据、站点级 `h1`,以及一份列出全部类型/合集/素材的可抓取清单
+- `index.html` 由构建脚本注入 canonical、Open Graph、Twitter 卡片、`WebSite` 与 `CollectionPage` 结构化数据以及站点级 `h1`;首页不生成站点地图清单区,内容可抓取性由类型索引页与合集预渲染页承担
 - 结构化数据统一使用 JSON-LD,覆盖 `WebSite`、`CollectionPage`、`BreadcrumbList`、`ImageObject` 与 `MediaObject`
 - **站内路径一律使用站点根绝对路径**:预渲染页位于 `<类型>/<合集>/` 这类深层目录,相对路径会按文档 URL 的目录解析而指向不存在的层级,因此页内链接与图片 `src` 统一写成以 `/` 开头、并带部署子路径前缀 `SITE_PATH_PREFIX`(项目站点为 `/NaiWa/`)的形式
 - **canonical 与 sitemap 的集合类 URL 一律带结尾斜杠**:其磁盘形态是 `<路径>/index.html`,不带斜杠的地址会被 Web 服务器 301 跳到带斜杠的版本,`canonical` 与 `loc` 都不应指向跳转前地址
