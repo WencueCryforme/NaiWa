@@ -1,5 +1,5 @@
 # 依据 dist 目录的层级结构生成各级 manifest 与分类 catalog,并以机器人身份回传仓库
-# 本工作流是可复用工作流(on: workflow_call),不自行触发,由 while-push-dist.yml 按顺序调用
+# 本工作流是可复用工作流(on: workflow_call),不自行触发,由 while-push-dist-or-pages.yml 按顺序调用
 # 回传仓库需要调用方授予 contents: write 权限(入口工作流已授予)
 # 脚本按拼音升序排列条目,排序依赖 pypinyin,故固定版本安装以保证同一份 dist 生成结果逐字节一致
 name: 生成manifest与catalog
