@@ -149,18 +149,27 @@ python scripts/build_pages.py    # 读取 catalog 与 pages/ 模板,生成 pages
 
 ### 门户卡片结构
 
-`pages/main.js` 的 `MediaCard` 类负责构建媒体卡片,结构与项目内参考实现一致,自上而下分三层:
+`pages/main.js` 的 `MediaCard` 类负责构建媒体卡片,结构与项目内参考实现一致,自上而下分两层:
 
 | 层 | 类名 | 说明 |
 |:---:|:---:|:---|
-| 标签横幅 | `card-label-banner` | 悬浮于媒体区域顶部,展示素材所属合集;由设置项 `settings.caption` 经 `body.hide-label-banner` 控制显隐 |
-| 媒体区域 | `card-media-wrap` | 承载图片/视频/音频与卡片内播放控件,`aspect-ratio` 提供高度兜底 |
+| 媒体区域 | `card-media-wrap` | 承载图片/视频/音频与卡片内播放控件;固定比例下由 `aspect-ratio` 决定视窗,原始比例下由媒体自身撑开高度 |
 | 操作栏 | `control-bar` | 位于卡片底部,与媒体区域分离;按钮由 `createCtrlBtn` 生成 |
 
+- 卡片**不渲染标签横幅**;本项目不使用标签,参考实现中的 `card-label-banner` 一套不予移植
 - 操作栏按钮依次为浏览、点赞、收藏、全屏、分享;每个按钮纵向排布 `ctrl-icon` 图标与 `ctrl-count` 计数
 - 浏览按钮为只读展示(`.ctrl-btn-static`),不接受点击;点赞与收藏各带 `active-like` / `active-fav` 激活态
 - 计数取自后端统计缓存 `statsCache`;后端未启用时以本地点赞/收藏状态兜底,保证激活态与数字自洽;点击时先做本地乐观增减,后端返回后由 `syncCounts` 覆盖为新基准
-- 文件名不再以独立文本行展示,改由媒体区域的 `title` 悬停提示承担
+- 文件名不占卡片版面,由媒体区域的 `title` 悬停提示承担
+
+**媒体填充的两种互斥模式**(`main.css`):
+
+| 模式 | 选择器 | 填充方式 |
+|:---:|:---:|:---|
+| 固定比例 | `.card-media-wrap:not(.ratio-original) .media-thumb` | `height: 100%` + `object-fit: cover`,居中裁切 |
+| 原始比例 | `.card-media-wrap.ratio-original .media-thumb` | `height: auto`,按宽度撑满,宽高比等于素材原始比例 |
+
+两条规则各自写全 `width` / `height` / `object-fit`,**不写成"基类 + 部分覆盖"**。这是照搬参考实现的结构:覆盖规则一旦漏写 `object-fit`,固定模式的 `cover` 会残留到原始比例模式,症状是卡片高度看着正确但画面被裁掉一截。原始比例模式下容器在 `.media-loaded` 之前用 `aspect-ratio: 1` 占位,加载后转 `auto` 由媒体撑开。
 
 ### 搜索引擎优化资产
 
@@ -175,7 +184,7 @@ python scripts/build_pages.py    # 读取 catalog 与 pages/ 模板,生成 pages
 
 - `index.html` 由构建脚本注入 canonical、Open Graph、Twitter 卡片、`WebSite` 与 `CollectionPage` 结构化数据以及站点级 `h1`;首页不生成站点地图清单区,内容可抓取性由类型索引页与合集预渲染页承担
 - 结构化数据统一使用 JSON-LD,覆盖 `WebSite`、`CollectionPage`、`BreadcrumbList`、`ImageObject` 与 `MediaObject`
-- **站内路径一律使用站点根绝对路径**:预渲染页位于 `<类型>/<合集>/` 这类深层目录,相对路径会按文档 URL 的目录解析而指向不存在的层级,因此页内链接与图片 `src` 统一写成以 `/` 开头、并带部署子路径前缀 `SITE_PATH_PREFIX`(项目站点为 `/NaiWa/`)的形式
+- **站内路径一律使用站点根绝对路径**:预渲染页位于 `<类型>/<合集>/` 这类深层目录,相对路径会按文档 URL 的目录解析而指向不存在的层级,因此页内链接与图片 `src` 统一写成以 `/` 开头、并带部署子路径前缀 `SITE_PATH_PREFIX`(项目站点为 `/NaiWa-Universe/`)的形式
 - **canonical 与 sitemap 的集合类 URL 一律带结尾斜杠**:其磁盘形态是 `<路径>/index.html`,不带斜杠的地址会被 Web 服务器 301 跳到带斜杠的版本,`canonical` 与 `loc` 都不应指向跳转前地址
 - 预渲染页**不引入**门户的 `main.css` 与 `main.js`:二者依赖完整门户 DOM(视图容器、设置面板、全屏模态等),在结构精简的预渲染页上会因取不到元素而中断脚本执行;预渲染页只引专用样式 `pages/seo.css`
 - 站点基址、部署子路径、站点名称与描述集中在脚本常量 `SITE_BASE_URL`、`SITE_PATH_PREFIX`、`SITE_NAME`、`SITE_DESCRIPTION`、`SITE_KEYWORDS`;切换自建域名时改这几处即可

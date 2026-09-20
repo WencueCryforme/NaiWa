@@ -16,6 +16,8 @@
 
 所有接口的 `media` 键为 `类型/合集/文件` 形式的媒体标识; GET 查询参数的值由 PHP 自动解码, 前端按逐段百分号编码拼接(`encodeURIComponent` 每段后以 `/` 连接)。
 
+> **编码注意事项**: 前端拼 URL 时**只做逐段编码**, 不得再外套一层 `encodeURIComponent`。`encodeKey` 已经把每段编码完毕, 再编码一次会把 `%` 转义成 `%25`(双重编码)并把 `/` 转成 `%2F`; 服务端只解码一次, 拿到的会是带 `%` 的残串, 与库中存放的原始中文键永不相等, 表现为"上报成功但查询永远返回 0"。POST 请求体中的 `media` 同样传逐段编码值, 由 `naiwa_media_key` 在服务端解码一次。
+
 ### 批量查询统计
 
 ```
@@ -58,7 +60,20 @@ Content-Type: application/json
 php -S 127.0.0.1:8125 -t api
 ```
 
-之后按上面契约直接请求 `http://127.0.0.1:8125/stats.php`; 完整的前后端联调方式见 `temp/api-test/`(临时目录, 不入库)。
+之后按上面契约直接请求 `http://127.0.0.1:8125/stats.php`。
+
+本机 PHP 未加载 `php.ini` 时(表现为报错 `could not find driver`), `pdo_sqlite` 扩展不会被启用, 可用 `php -c <ini>` 指定一份启用该扩展的配置文件; 该 ini 只需两行:
+
+```ini
+extension_dir = "<PHP 安装目录>/ext"
+extension=php_pdo_sqlite.dll
+```
+
+契约的自动化校验位于 `.agents/check_api_contract.mjs`, 覆盖批量查询、三种行为上报累加、中文键编码往返、score 计算与降序、CORS 与预检、非法请求等 26 项, 使用独立临时数据库, 不触碰 `api/data/stats.db`:
+
+```bash
+node .agents/check_api_contract.mjs
+```
 
 ## 部署
 

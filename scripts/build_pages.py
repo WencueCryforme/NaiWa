@@ -90,15 +90,15 @@ CACHE_BUSTER_LENGTH = 8
 CATALOG_DATA_NAME = "catalog-data.js"
 
 # 站点仓库地址,写入构建信息供关于页展示
-SITE_BUILD_REPO = "https://github.com/WencueCryforme/NaiWa"
+SITE_BUILD_REPO = "https://github.com/WencueCryforme/NaiWa-Universe"
 
 # 站点线上基址(GitHub Pages 默认域名), 用于生成 canonical、Open Graph、sitemap 等需要
-# 绝对 URL 的字段; 结尾不带斜杠, 子路径部署时把子路径一并写入(如 ".../NaiWa")
-SITE_BASE_URL = "https://wencuecryforme.github.io/NaiWa"
+# 绝对 URL 的字段; 结尾不带斜杠, 子路径部署时把子路径一并写入(如 ".../NaiWa-Universe")
+SITE_BASE_URL = "https://wencuecryforme.github.io/NaiWa-Universe"
 
 # 站点在域名下的部署子路径(项目站点的站点根不在域名根时非空), 结尾带斜杠;
 # 预渲染页位于深层目录, 页内一律使用以它开头的站点根绝对路径, 避免相对路径解析错层
-SITE_PATH_PREFIX = "/NaiWa/"
+SITE_PATH_PREFIX = "/NaiWa-Universe/"
 
 # 站点名称与默认描述, 用于 title 后缀、Open Graph 与 JSON-LD
 SITE_NAME = "奶蛙宇宙"
