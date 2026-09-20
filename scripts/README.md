@@ -171,6 +171,20 @@ python scripts/build_pages.py    # 读取 catalog 与 pages/ 模板,生成 pages
 
 两条规则各自写全 `width` / `height` / `object-fit`,**不写成"基类 + 部分覆盖"**。这是照搬参考实现的结构:覆盖规则一旦漏写 `object-fit`,固定模式的 `cover` 会残留到原始比例模式,症状是卡片高度看着正确但画面被裁掉一截。原始比例模式下容器在 `.media-loaded` 之前用 `aspect-ratio: 1` 占位,加载后转 `auto` 由媒体撑开。
 
+**媒体网格采用列容器式 masonry**(`main.css` + `main.js`):
+
+| 层 | 类名 | 说明 |
+|:---:|:---:|:---|
+| 网格容器 | `grid-container` | 横向 flex 且 `align-items: flex-start`,只负责排列各列 |
+| 列容器 | `masonry-col` | 纵向 flex,等宽(`flex: 1 1 0`),卡片紧密相接 |
+
+- 列容器数量即当前列数,由 `ensureColumns` 与 `settings.cols` 对齐;列宽由 `flex` 均分,不再用 CSS 变量 `--cols` 控制
+- 卡片由 `appendCard` 轮询追加到各列,保持近似行优先的视觉顺序;列数变化时 `redistribute` 把既有卡片重新分配,卡片实例不销毁只搬动 DOM 节点
+- 列高由 `rebalanceGrid` 再平衡:轮询分配在卡片数不被列数整除时必然失衡(如 4 张卡片分 3 列,某列必放 2 张),故按实测高度把最高列中的卡片搬到最低列,且只在能收窄极差时搬动;`scheduleRebalance` 以 300ms 防抖触发,顺带避免用户连续滚动期间重排
+- **不得改回 CSS Grid**:网格的行轨道按该行最高卡片取值,原始比例模式下矮卡片会被拉高,多余空间堆在操作栏下方形成空洞(实测单卡可达 200px 以上)
+- 卡片高度必须等于 媒体区域 + 操作栏 + 上下边框(2px),任何拉伸都会在卡片内产生死区
+- 布局回归由 `.agents/check_masonry.mjs` 覆盖
+
 ### 搜索引擎优化资产
 
 门户是客户端渲染的单页应用,初始 HTML 只有一个空容器。不保证执行 JavaScript 的爬虫(含多数 AI 检索爬虫)因此看不到任何素材名、合集名与内容链接。本脚本把全部内容在构建期落进 HTML,产出以下资产:

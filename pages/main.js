@@ -394,10 +394,17 @@
   }
 
   /* ---------- 设置应用 ---------- */
+  /* 上次生效的列数, 用于判断是否需要重排列容器 */
+  let lastAppliedCols = 0;
+
   function applySettings() {
     document.documentElement.dataset.theme = settings.theme;
+    const colsChanged = lastAppliedCols !== settings.cols;
+    lastAppliedCols = settings.cols;
     document.querySelectorAll('.grid-container').forEach((g) => {
-      g.style.setProperty('--cols', settings.cols);
+      ensureColumns(g, settings.cols);
+      /* 列数变化时把已有卡片重新分配, 否则卡片会全部滞留在变化前的列里 */
+      if (colsChanged && g.querySelector('.media-card')) redistribute(g);
     });
     /* 媒体视窗比例: 固定比例写入 --ratio, 原始比例交由加载完成后的媒体自身撑开 */
     document.querySelectorAll('.card-media-wrap').forEach((w) => {
@@ -409,6 +416,8 @@
         w.classList.remove('ratio-original');
       }
     });
+    /* 比例或列数变化会改变卡片高度, 重新平衡各列 */
+    document.querySelectorAll('.grid-container').forEach((g) => scheduleRebalance(g));
   }
 
   /* ---------- 媒体卡片 ----------
@@ -613,6 +622,7 @@
           if (this.playerBar) {
             this.playerBar.time.textContent = '0:00 / ' + formatTime(el.duration);
           }
+          scheduleRebalance(this.el.closest('.grid-container'));
         });
         el.addEventListener('error', () => this.markFailed());
         return el;
@@ -625,6 +635,7 @@
         img.classList.remove('loading');
         img.classList.add('loaded');
         this.wrap.classList.add('media-loaded');
+        scheduleRebalance(this.el.closest('.grid-container'));
       });
       img.addEventListener('error', () => this.markFailed());
       this.observeLazy(img);
@@ -795,14 +806,97 @@
     return new MediaCard(item, opts).el;
   }
 
+  /* ---------- 列式网格(masonry) ----------
+     网格容器内按当前列数维护等宽纵列, 卡片轮询追加到各列, 使视觉顺序保持近似
+     行优先。列容器数量即列数, 不再依赖 CSS 变量控制列宽 */
+
+  /* 每个网格的下一个落列下标, 保证跨页追加时轮询不从头开始 */
+  const gridCursor = new WeakMap();
+
+  /* 把网格的列容器数量对齐到 n, 多余的列先把卡片并回第一列再移除, 避免丢卡片 */
+  function ensureColumns(grid, n) {
+    const cols = [...grid.children].filter((el) => el.classList.contains('masonry-col'));
+    while (cols.length < n) {
+      const col = document.createElement('div');
+      col.className = 'masonry-col';
+      grid.appendChild(col);
+      cols.push(col);
+    }
+    while (cols.length > n) {
+      const col = cols.pop();
+      const first = cols[0];
+      if (first) [...col.children].forEach((c) => first.appendChild(c));
+      col.remove();
+    }
+    return cols;
+  }
+
+  /* 追加卡片: 轮询落到各列, 保证原图比例模式下各列高度大致均衡 */
+  function appendCard(grid, card) {
+    const cols = ensureColumns(grid, settings.cols);
+    const i = gridCursor.get(grid) || 0;
+    cols[i % cols.length].appendChild(card);
+    gridCursor.set(grid, i + 1);
+  }
+
+  /* 列数变化后重新分配既有卡片: 卡片实例不销毁, 仅搬动 DOM 节点 */
+  function redistribute(grid) {
+    const cards = [...grid.querySelectorAll('.media-card')];
+    grid.innerHTML = '';
+    gridCursor.set(grid, 0);
+    cards.forEach((c) => appendCard(grid, c));
+  }
+
+  /* ---------- 列高再平衡 ----------
+     轮询分配在卡片数不被列数整除、或各列卡片高度差异较大时会失衡, 表现为某列
+     明显比别的列长。这里按实测高度把最高列中的卡片搬到最低列, 且只在能收窄
+     极差时才搬, 因此必然收敛。用防抖合并同一批加载事件: 用户连续滚动、图片持续
+     加载期间定时器不断被重置, 只会在加载停顿后才真正重排, 避免滚动中卡片跳动 */
+
+  /* 每个网格的待执行再平衡定时器 */
+  const rebalanceTimers = new WeakMap();
+
+  function scheduleRebalance(grid) {
+    if (!grid) return;
+    clearTimeout(rebalanceTimers.get(grid));
+    rebalanceTimers.set(grid, setTimeout(() => rebalanceGrid(grid), 300));
+  }
+
+  function rebalanceGrid(grid) {
+    const cols = [...grid.children].filter((el) => el.classList.contains('masonry-col'));
+    if (cols.length < 2) return;
+    const gap = parseFloat(getComputedStyle(grid).columnGap) || 0;
+    for (let iter = 0; iter < 30; iter++) {
+      const heights = cols.map((c) => c.getBoundingClientRect().height);
+      const maxH = Math.max.apply(null, heights);
+      const minH = Math.min.apply(null, heights);
+      const spread = maxH - minH;
+      /* 极差已在两个网格间距以内, 视为均衡 */
+      if (spread <= gap * 2) break;
+      const maxI = heights.indexOf(maxH);
+      const minI = heights.indexOf(minH);
+      /* 在最高列里挑一张搬到最低列后能最大幅度收窄极差的卡片 */
+      let best = null;
+      [...cols[maxI].children].forEach((card) => {
+        const delta = card.getBoundingClientRect().height + gap;
+        const next = Math.abs((maxH - delta) - (minH + delta));
+        if (next < spread - 1 && (!best || next < best.next)) best = { next, card };
+      });
+      if (!best) break;
+      cols[minI].appendChild(best.card);
+    }
+  }
+
   /* 清空一个网格并销毁其下全部卡片实例, 释放播放中的媒体与未触发的懒加载观察者 */
   function clearGrid(grid) {
     if (!grid) return;
+    clearTimeout(rebalanceTimers.get(grid));
     grid.querySelectorAll('.media-card').forEach((el) => {
       const inst = cardInstances.get(el.dataset.key);
       if (inst && inst.el === el) inst.destroy();
     });
     grid.innerHTML = '';
+    gridCursor.set(grid, 0);
   }
 
   /* 暂停全部卡片内正在播放的媒体: 视图切换时调用, 避免离开视图后仍在出声或耗电 */
@@ -876,7 +970,7 @@
     if (start < albumItems.length) {
       const pageItems = albumItems.slice(start, start + PAGE_SIZE);
       pageItems.forEach((item) => {
-        dom.albumGrid.appendChild(createMediaCard(item));
+        appendCard(dom.albumGrid, createMediaCard(item));
       });
       /* 本页卡片就位后拉取统计, 命中后回填浏览/点赞/收藏计数 */
       refreshStats(pageItems.map((it) => it.key));
@@ -936,7 +1030,7 @@
       bar.appendChild(clear);
       dom.favoritesGrid.parentNode.insertBefore(bar, dom.favoritesGrid);
     }
-    items.forEach((item) => dom.favoritesGrid.appendChild(createMediaCard(item)));
+    items.forEach((item) => appendCard(dom.favoritesGrid, createMediaCard(item)));
     refreshStats(items.map((it) => it.key));
     applySettings();
   }
@@ -999,7 +1093,7 @@
         /* 热门接口已带回统计, 直接写入缓存供卡片计数使用 */
         statsCache[item.key] = row;
         appended += 1;
-        dom.hotGrid.appendChild(createMediaCard(item, { rank: String(start + appended) }));
+        appendCard(dom.hotGrid, createMediaCard(item, { rank: String(start + appended) }));
       });
       hotPage += 1;
       applySettings();

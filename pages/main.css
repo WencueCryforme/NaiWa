@@ -222,11 +222,23 @@ img { display: block; }
 .album-name { font-size: 16px; font-weight: 600; margin: 0 0 6px; }
 .album-count { font-size: 13px; color: var(--text-dim); margin: 0; }
 
-/* ---------- 媒体网格 ---------- */
+/* ---------- 媒体网格 ----------
+   采用列容器式 masonry: 外层横向 flex, 内部按当前列数维护等宽纵列, 卡片由 JS
+   轮询追加到各列。不用 CSS Grid 的原因: 网格的行轨道按该行最高卡片取值, 原始
+   比例模式下卡片高度随素材比例变化, 矮卡片会被拉高, 多余空间堆在操作栏下方
+   形成大片空洞(实测可达 200px 以上)。列式布局天然贴合卡片高度, 与参考实现的
+   结构口径一致 */
 .grid-container {
-  display: grid;
+  display: flex;
+  align-items: flex-start;
   gap: 14px;
-  grid-template-columns: repeat(var(--cols, 3), 1fr);
+}
+.masonry-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1 1 0;
+  min-width: 0;
 }
 .media-card {
   position: relative;
@@ -869,6 +881,7 @@ img { display: block; }
   .tab-nav { order: 3; width: 100%; justify-content: space-around; }
   .main-content { padding: 12px 10px 24px; }
   .grid-container { gap: 10px; }
+  .masonry-col { gap: 10px; }
   .album-nav { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
   .notice-bar { margin: 8px 10px 0; }
   .crumb-bar { padding: 8px 12px 0; }
