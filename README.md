@@ -21,7 +21,9 @@
 
 <img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙大笑.gif"/><img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙捧腹大笑.gif"/><img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙拍墙大笑.jpg"/>
 
-先去欣赏 [奶蛙的爆笑](https://xinyewebsite.com/games/milk-frog/) 。
+<details><summary>奶蛙的爆笑视频</summary>
+<video width="100%" src="./dist/video/奶蛙爆笑合集/奶蛙爆笑.mp4" controls loop>
+</details>
 
 ## 表情包
 

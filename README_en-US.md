@@ -21,7 +21,9 @@ You don't even know about milk frogs?
 
 <img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙大笑.gif"/><img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙捧腹大笑.gif"/><img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙拍墙大笑.jpg"/>
 
-Go enjoy [the hilarious milk frogs](https://xinyewebsite.com/games/milk-frog/) first.
+<details><summary>Milk frog comedy videos</summary>
+<video width="100%" src="./dist/video/奶蛙爆笑合集/奶蛙爆笑.mp4" controls loop>
+</details>
 
 ## Sticker Packs
 
