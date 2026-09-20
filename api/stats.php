@@ -2,6 +2,7 @@
 /* ============================================================
    奶蛙宇宙门户统计后端 - 统一数据接口
    与前端 main.js 的 apiGet / apiPost 封装对应, 全部接口支持跨域
+   作者: WencueCryforme <https://github.com/WencueCryforme>
    接口契约:
      GET  {BACKEND_API}/stats.php?stats&media[]=<encoded>[&media[]=...]
           批量查询统计; 同名参数必须用 media[] 数组语法, PHP 才会解析为数组
