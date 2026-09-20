@@ -1,0 +1,408 @@
+/* ============================================================
+   奶蛙宇宙门户 - seo.css
+   预渲染合集内容页的样式, 只在 <类型>/<合集>/index.html 中引用;
+   不参与交互式门户的渲染, 与 main.css 相互独立
+   ============================================================ */
+
+:root {
+  --seo-bg: #f6f8f7;
+  --seo-surface: #ffffff;
+  --seo-border: #e2e8e5;
+  --seo-text: #1f2933;
+  --seo-muted: #66727c;
+  --seo-accent: #3aa675;
+  --seo-accent-soft: #eef7f2;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+html::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+body.seo-page {
+  margin: 0;
+  padding: 0;
+  background: var(--seo-bg);
+  color: var(--seo-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+/* 顶部横幅: 说明当前是只读内容页并提供回到门户的出口 */
+.seo-banner {
+  background: var(--seo-accent-soft);
+  border-bottom: 1px solid var(--seo-border);
+}
+
+.seo-banner-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 10px 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.seo-banner-text {
+  color: var(--seo-muted);
+  font-size: 13px;
+}
+
+.seo-banner-link {
+  color: var(--seo-accent);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid var(--seo-accent);
+  border-radius: 999px;
+  padding: 3px 14px;
+  transition: background 0.2s, color 0.2s;
+}
+
+.seo-banner-link:hover {
+  background: var(--seo-accent);
+  color: #ffffff;
+}
+
+.seo-wrap {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 28px 20px 40px;
+}
+
+/* 面包屑 */
+.seo-crumb {
+  font-size: 13px;
+  color: var(--seo-muted);
+  margin-bottom: 18px;
+}
+
+.seo-crumb a {
+  color: var(--seo-muted);
+  text-decoration: none;
+}
+
+.seo-crumb a:hover {
+  color: var(--seo-accent);
+}
+
+.seo-crumb-current {
+  color: var(--seo-text);
+}
+
+.seo-sep {
+  margin: 0 6px;
+  color: var(--seo-border);
+}
+
+/* 页面标题区 */
+.seo-head {
+  background: var(--seo-surface);
+  border: 1px solid var(--seo-border);
+  border-radius: 12px;
+  padding: 22px 24px;
+  margin-bottom: 26px;
+}
+
+.seo-head h1 {
+  margin: 0 0 10px;
+  font-size: 24px;
+  line-height: 1.4;
+}
+
+.seo-lead {
+  margin: 0;
+  color: var(--seo-muted);
+  font-size: 14px;
+}
+
+/* 分区 */
+.seo-section {
+  margin-bottom: 30px;
+}
+
+.seo-section h2 {
+  font-size: 17px;
+  margin: 0 0 14px;
+  padding-left: 10px;
+  border-left: 3px solid var(--seo-accent);
+  line-height: 1.3;
+}
+
+/* 缩略图网格: 宽屏 4 列, 窄屏 2 列 */
+.seo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.seo-media {
+  margin: 0;
+  background: var(--seo-surface);
+  border: 1px solid var(--seo-border);
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.seo-media img {
+  display: block;
+  width: 100%;
+  height: 190px;
+  object-fit: cover;
+  background: var(--seo-bg);
+}
+
+.seo-file-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 190px;
+  background: var(--seo-accent-soft);
+  text-decoration: none;
+}
+
+.seo-file-icon {
+  color: var(--seo-accent);
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px dashed var(--seo-accent);
+  border-radius: 8px;
+  padding: 8px 18px;
+}
+
+.seo-media figcaption {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.seo-media figcaption a {
+  color: var(--seo-text);
+  font-size: 13.5px;
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.seo-media figcaption a:hover {
+  color: var(--seo-accent);
+}
+
+.seo-kind {
+  color: var(--seo-muted);
+  font-size: 12px;
+}
+
+/* 文字链接清单 */
+.seo-link-list,
+.seo-file-list,
+.seo-album-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.seo-link-list {
+  background: var(--seo-surface);
+  border: 1px solid var(--seo-border);
+  border-radius: 12px;
+  padding: 8px 18px;
+}
+
+.seo-link-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--seo-border);
+}
+
+.seo-link-list > li:last-child {
+  border-bottom: none;
+}
+
+.seo-link-list a {
+  color: var(--seo-text);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.seo-link-list a:hover {
+  color: var(--seo-accent);
+}
+
+.seo-count {
+  color: var(--seo-muted);
+  font-size: 12px;
+}
+
+/* 剩余素材的纯文字清单: 两列排布, 保持完整可抓取 */
+.seo-plain-list {
+  column-count: 2;
+  column-gap: 32px;
+}
+
+.seo-plain-list > li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  break-inside: avoid;
+  border-bottom: none;
+  padding: 6px 0;
+}
+
+/* 首页注入的站点地图区: 表格列文本水平居中 */
+.seo-map {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 20px 34px;
+  text-align: center;
+}
+
+.seo-map-brief {
+  display: inline-block;
+  margin: 0 0 22px;
+  padding: 14px 22px;
+  background: var(--seo-surface);
+  border: 1px solid var(--seo-border);
+  border-radius: 12px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--seo-muted);
+  font-size: 13.5px;
+  max-width: 100%;
+}
+
+.seo-map-brief summary {
+  color: var(--seo-accent);
+  font-weight: 600;
+  font-size: 14px;
+  list-style: none;
+}
+
+.seo-map-brief summary::-webkit-details-marker {
+  display: none;
+}
+
+.seo-map-brief[open] summary {
+  margin-bottom: 12px;
+}
+
+.seo-type-block {
+  background: var(--seo-surface);
+  border: 1px solid var(--seo-border);
+  border-radius: 12px;
+  padding: 18px 22px;
+  margin-bottom: 18px;
+  text-align: center;
+}
+
+.seo-type-block h3 {
+  margin: 0 0 14px;
+  font-size: 16px;
+  text-align: center;
+}
+
+.seo-album-list > li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--seo-border);
+}
+
+.seo-album-list > li:last-child {
+  border-bottom: none;
+}
+
+.seo-album-list > li > a {
+  color: var(--seo-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.seo-album-list > li > a:hover {
+  color: var(--seo-accent);
+}
+
+.seo-file-list {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  justify-content: center;
+}
+
+.seo-file-list a {
+  color: var(--seo-muted);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.seo-file-list a:hover {
+  color: var(--seo-accent);
+}
+
+.seo-empty {
+  color: var(--seo-muted);
+  font-size: 13px;
+}
+
+/* 页脚 */
+.seo-footer {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 22px 20px 34px;
+  color: var(--seo-muted);
+  font-size: 12.5px;
+  text-align: center;
+  border-top: 1px solid var(--seo-border);
+}
+
+.seo-footer a {
+  color: var(--seo-accent);
+  text-decoration: none;
+}
+
+.seo-note {
+  color: var(--seo-muted);
+  font-size: 13px;
+}
+
+.seo-note a {
+  color: var(--seo-accent);
+  text-decoration: none;
+}
+
+@media (max-width: 767px) {
+  .seo-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .seo-media img,
+  .seo-file-link {
+    height: 150px;
+  }
+
+  .seo-plain-list {
+    column-count: 1;
+  }
+
+  .seo-head h1 {
+    font-size: 20px;
+  }
+}

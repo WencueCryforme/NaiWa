@@ -1220,6 +1220,20 @@
     dom.noticeBar.hidden = false;
   }
 
+  /* ---------- 站点地图区 ----------
+     构建脚本会把全部类型/合集/素材的链接注入 <details id="siteMap">, 既有 SEO 价值也作为
+     用户侧的完整目录。默认收起, 但仅在 JavaScript 可用时才收起: 无脚本环境下保持展开,
+     否则内容会被折叠而不可见。展开状态在本机记忆 */
+  function bindSiteMap() {
+    const box = $('siteMap');
+    if (!box) return;
+    const KEY = 'siteMapOpen';
+    let open = store.get(KEY, false);
+    /* 深链进入合集页后默认收起, 避免把交互视图推到页面下方 */
+    box.open = open;
+    box.addEventListener('toggle', () => store.set(KEY, box.open));
+  }
+
   /* ---------- 初始化 ---------- */
   function init() {
     /* 刷新页面时回到顶部, 不恢复上次滚动位置 */
@@ -1242,6 +1256,7 @@
       renderSettings();
       applySettings();
     });
+    bindSiteMap();
     dom.btnBackTop.classList.toggle('show', window.scrollY > window.innerHeight);
     inited = true;
     /* 入口深链: 若 URL 带 which 参数, 跳转到对应模块/专辑/卡片 */

@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- SEO_HEAD -->
   <meta name="description" content="奶蛙表情包宇宙在线版 - 在线浏览奶蛙表情包合集, 支持收藏与热门排序">
   <meta name="theme-color" content="#3aa675">
   <title>奶蛙宇宙</title>
@@ -42,8 +43,12 @@
 
   <!-- 主内容区 -->
   <main class="main-content">
+    <!-- 站点级 h1: 视觉上隐藏, 供搜索引擎与无脚本环境识别页面主题 -->
+    <h1 class="seo-sr-only">奶蛙宇宙 - 奶蛙表情包在线浏览与下载</h1>
+
     <!-- 首页: 类型 -> 合集导航 -->
     <section class="view" id="viewHome">
+      <h2 class="view-heading">按类型浏览合集</h2>
       <div class="type-nav" id="typeNav"></div>
       <div class="album-nav" id="albumNav"></div>
     </section>
@@ -59,6 +64,7 @@
 
     <!-- 收藏 -->
     <section class="view" id="viewFavorites" hidden>
+      <h2 class="view-heading">我的收藏</h2>
       <div class="view-empty" id="favoritesEmpty" hidden>
         <p>还没有收藏任何资源</p>
         <p class="view-empty-hint">在合集浏览中点击卡片上的星标即可收藏</p>
@@ -68,6 +74,7 @@
 
     <!-- 热门 -->
     <section class="view" id="viewHot" hidden>
+      <h2 class="view-heading">热门素材</h2>
       <div class="view-empty" id="hotEmpty" hidden>
         <p id="hotEmptyText">热门数据不可用</p>
       </div>
@@ -170,6 +177,17 @@
 
   <!-- 飘窗提醒容器 -->
   <div class="toast-container" id="toastContainer"></div>
+
+  <!-- 无脚本兜底与站点地图: 交由构建脚本填入全部类型/合集/素材的链接 -->
+  <noscript>
+    <p style="margin:0 auto 16px;padding:12px 16px;max-width:1080px;border-radius:10px;background:#eef7f2;font-size:13.5px;line-height:1.7">
+      当前浏览器未启用 JavaScript。下方列出完整素材清单, 点击任意条目即可查看或下载; 启用 JavaScript 后可获得交互式浏览体验。
+    </p>
+  </noscript>
+  <details class="seo-map" id="siteMap" open>
+    <summary class="seo-map-brief">站点地图 · 全部素材清单</summary>
+    <!-- SEO_SITE_MAP -->
+  </details>
 
   <script src="catalog-data.js"></script>
   <script src="main.js"></script>

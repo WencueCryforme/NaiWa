@@ -802,6 +802,87 @@ img { display: block; }
 .toast.warn { border-color: #e0b04c; }
 .toast.degrade { border-color: #d98c8c; }
 
+/* ---------- SEO 语义结构与站点地图 ----------
+   本节样式同时服务两种渲染路径: 页面内已有的站点级 h1 与视图 h2, 以及由构建脚本
+   注入 index.html 的站点地图区(含无脚本兜底提示)。未注入时多余样式不生效, 无副作用 */
+.seo-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.view-heading {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin: 0 0 12px;
+}
+.seo-noscript {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 13.5px;
+}
+.seo-map {
+  margin: 8px auto 28px;
+  max-width: 1080px;
+  padding: 0 16px;
+  text-align: center;
+}
+.seo-map-brief {
+  display: inline-block;
+  padding: 10px 20px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.seo-map-brief::-webkit-details-marker { display: none; }
+.seo-map[open] .seo-map-brief { margin-bottom: 18px; }
+.seo-type-block {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  text-align: center;
+}
+.seo-type-block h3 { margin: 0 0 12px; font-size: 16px; color: var(--text); }
+.seo-album-list,
+.seo-file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.seo-album-list > li { padding: 9px 0; border-bottom: 1px solid var(--border); }
+.seo-album-list > li:last-child { border-bottom: none; }
+.seo-album-list > li > a { color: var(--text); font-weight: 600; text-decoration: none; }
+.seo-album-list > li > a:hover { color: var(--accent); }
+.seo-count { color: var(--text-dim); font-size: 12px; margin-left: 8px; }
+.seo-file-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  justify-content: center;
+  margin-top: 8px;
+}
+.seo-file-list a { color: var(--text-dim); font-size: 13px; text-decoration: none; }
+.seo-file-list a:hover { color: var(--accent); }
+.seo-kind { color: var(--text-dim); font-size: 12px; margin-left: 6px; }
+.seo-empty { color: var(--text-dim); font-size: 13px; }
+
 /* ---------- 移动端适配 ---------- */
 @media (max-width: 767px) {
   .top-bar { flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
