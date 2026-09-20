@@ -3,8 +3,8 @@
 处理流程:
 
 - 读取 `catalog/dist/manifest.json` 的 `types` 列表
-- 对每个类型读取 `catalog/dist/<类型>/manifest.json` 的 `albums` 列表
-- 逐个读取 `catalog/dist/<类型>/<合集>/manifest.json` 的 `files` 列表
+- 对每个类型读取 `catalog/dist/<类型>/manifest.json` 的 `albums` 列表与 `format`
+- 逐个读取 `catalog/dist/<类型>/<合集>/manifest.json` 的 `files` 列表与 `format`
 - 写出 `catalog/catalog.<类型>.json`
 
 manifest 由 gen_manifest.py 生成,按 dist 的层级镜像存放于 catalog/dist/ 下;
@@ -13,7 +13,7 @@ manifest 由 gen_manifest.py 生成,按 dist 的层级镜像存放于 catalog/di
 产物结构与 manifest 风格保持一致:
 
 ```
-{"name":"NaiWa-catalog-<类型>","type":"<类型>","albums":[{"name":"<合集>","files":["<文件名>"]}]}
+{"name":"NaiWa-catalog-<类型>","type":"<类型>","format":"<扩展名>","albums":[{"name":"<合集>","format":"<扩展名>","files":["<文件名>"]}]}
 ```
 
 各级条目均按名称的拼音升序排序(见 pinyin_sort_key),不沿用 manifest 内的顺序,
@@ -142,17 +142,19 @@ def catalog_file_name(type_name: str) -> str:
 
 def read_manifest(
     dist_dir: str, manifest_root: str, directory: str, missing: list[str]
-) -> list[str]:
-    """读取目录对应 manifest 的条目列表,缺失时记入 missing 并返回空列表"""
+) -> dict:
+    """读取目录对应 manifest 的条目列表与格式,缺失时记入 missing 并返回空结构"""
     target = mirror_path(dist_dir, manifest_root, directory)
     if not os.path.isfile(target):
         missing.append(relative(target))
-        return []
+        return {"values": [], "format": ""}
     manifest = read_json(target)
+    values: list[str] = []
     for key in ("files", "albums", "types"):
         if key in manifest:
-            return list(manifest[key])
-    return []
+            values = list(manifest[key])
+            break
+    return {"values": values, "format": manifest.get("format", "")}
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -192,9 +194,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     missing: list[str] = []
-    types = sorted(
-        read_manifest(dist_dir, manifest_root, dist_dir, missing), key=pinyin_sort_key
-    )
+    dist_manifest = read_manifest(dist_dir, manifest_root, dist_dir, missing)
+    types = sorted(dist_manifest["values"], key=pinyin_sort_key)
     if missing:
         for path in missing:
             sys.stderr.write(f"[缺失] {path}\n")
@@ -207,25 +208,24 @@ def main(argv: list[str] | None = None) -> int:
     written: list[tuple[str, int, int]] = []
     for type_name in types:
         type_dir = os.path.join(dist_dir, type_name)
-        albums = sorted(
-            read_manifest(dist_dir, manifest_root, type_dir, missing), key=pinyin_sort_key
-        )
+        type_manifest = read_manifest(dist_dir, manifest_root, type_dir, missing)
+        albums = sorted(type_manifest["values"], key=pinyin_sort_key)
         album_entries = []
         for album_name in albums:
             album_dir = os.path.join(type_dir, album_name)
+            album_manifest = read_manifest(dist_dir, manifest_root, album_dir, missing)
             album_entries.append(
                 {
                     "name": album_name,
-                    "files": sorted(
-                        read_manifest(dist_dir, manifest_root, album_dir, missing),
-                        key=pinyin_sort_key,
-                    ),
+                    "format": album_manifest.get("format", ""),
+                    "files": sorted(album_manifest["values"], key=pinyin_sort_key),
                 }
             )
 
         data = {
             "name": f"{CATALOG_NAME_PREFIX}{type_name}",
             "type": type_name,
+            "format": type_manifest.get("format", ""),
             "albums": album_entries,
         }
         target = os.path.join(catalog_dir, catalog_file_name(type_name))

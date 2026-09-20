@@ -4,8 +4,8 @@
 不把 manifest 放进 dist 本体:
 
 - `catalog/dist/manifest.json`                 -> `types`: dist 下的子目录名列表(类型列表)
-- `catalog/dist/<类型>/manifest.json`          -> `albums`: 该类型下的合集目录名列表
-- `catalog/dist/<类型>/<合集>/manifest.json`   -> `files`: 该合集内的文件名列表
+- `catalog/dist/<类型>/manifest.json`          -> `albums`: 该类型下的合集目录名列表,`format`: 该类型下文件的主流扩展名
+- `catalog/dist/<类型>/<合集>/manifest.json`   -> `files`: 该合集内的文件名列表,`format`: 该合集内文件的主流扩展名
 
 字段结构与命名沿用仓库已有 manifest 的写法:name 为 `NaiWa-<dist 下目录相对仓库
 根目录的路径以 - 连接>-manifest`,dist 根级沿用现有字面量;name 描述的是 dist 下
@@ -133,6 +133,40 @@ def list_files(directory: str) -> list[str]:
     )
 
 
+def detect_format(directory: str, recursive: bool = False) -> str:
+    """扫描目录内文件,返回出现次数最多的扩展名(含前导点,小写);无文件返回空串
+
+    类型目录下直接是合集子目录,因此类型级格式检测需要递归扫描其下所有文件;
+    合集级文件为直接子项,使用非递归扫描即可。
+    """
+    if not os.path.isdir(directory):
+        return ""
+    ext_counts: dict[str, int] = {}
+
+    def _count(names: list[str], parent: str) -> None:
+        for name in names:
+            if name.startswith(".") or name == MANIFEST_NAME:
+                continue
+            path = os.path.join(parent, name)
+            if not os.path.isfile(path):
+                continue
+            _, ext = os.path.splitext(name)
+            ext = ext.lower()
+            if ext:
+                ext_counts[ext] = ext_counts.get(ext, 0) + 1
+
+    if recursive:
+        for dirpath, _, names in os.walk(directory):
+            _count(names, dirpath)
+    else:
+        _count(os.listdir(directory), directory)
+
+    if not ext_counts:
+        return ""
+    # 按出现次数降序,次数相同按扩展名字母序,保证确定性
+    return max(ext_counts.items(), key=lambda x: (x[1], x[0]))[0]
+
+
 def write_json(path: str, data) -> int:
     """写出去除空白符的 JSON,返回文件字节数;输出目录缺失时自动逐级创建"""
     parent = os.path.dirname(path)
@@ -170,10 +204,14 @@ def write_manifest(
     directory: str,
     key: str,
     values: list[str],
+    format: str = "",
 ) -> tuple[str, int]:
     """在镜像目录下写出一个 manifest,返回 (相对路径, 字节数)"""
     target = mirror_path(dist_dir, manifest_root, directory)
-    size = write_json(target, {"name": manifest_name(directory), key: values})
+    data: dict[str, object] = {"name": manifest_name(directory), key: values}
+    if format:
+        data["format"] = format
+    size = write_json(target, data)
     return relative(target), size
 
 
@@ -229,14 +267,17 @@ def main(argv: list[str] | None = None) -> int:
         type_dir = os.path.join(dist_dir, type_name)
         albums = list_subdirs(type_dir)
         album_count += len(albums)
+        # 类型级格式由该类型下所有文件共同决定(如 video 类型全部为 .mp4)
+        type_format = detect_format(type_dir, recursive=True)
         written.append(
-            write_manifest(dist_dir, manifest_root, type_dir, "albums", albums)
+            write_manifest(dist_dir, manifest_root, type_dir, "albums", albums, type_format)
         )
         for album_name in albums:
             album_dir = os.path.join(type_dir, album_name)
+            album_format = detect_format(album_dir)
             written.append(
                 write_manifest(
-                    dist_dir, manifest_root, album_dir, "files", list_files(album_dir)
+                    dist_dir, manifest_root, album_dir, "files", list_files(album_dir), album_format
                 )
             )
 

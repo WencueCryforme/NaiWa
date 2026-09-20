@@ -19,7 +19,7 @@ NaiWa's Universe
 
 You don't even know about NaiWa(milk-frog)?
 
-<img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙大笑.gif"/><img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙捧腹大笑.gif"/><img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙拍墙大笑.jpg"/>
+<img width="120px" src="./dist/meme/奶蛙爆笑合集/奶蛙大笑.gif"/><img width="120px" src="./dist/meme/奶蛙爆笑合集/奶蛙捧腹大笑.gif"/><img width="120px" src="./dist/meme/奶蛙爆笑合集/奶蛙拍墙大笑.jpg"/>
 
 [Go to watch NaiWa comedy video](https://WencueCryforme.github.io/NaiWa/files/video/奶蛙爆笑合集/奶蛙爆笑.mp4) .
 

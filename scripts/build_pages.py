@@ -2,7 +2,7 @@
 
 处理流程:
 
-- 读取 `catalog/dist/manifest.json` 的 `types` 列表与各类型的 `catalog/catalog.<类型>.json`
+- 读取 `catalog/dist/manifest.json` 的 `types` 列表与各类型的 `catalog/catalog.<类型>.json`(含 `format` 与 `albums`)
 - 把 `pages/` 下的模板文件复制到 `pages/dist/`
 - 把 catalog 数据与构建信息写为 `pages/dist/catalog-data.js`,由前端运行时读取
 - 把 `dist/` 媒体按原层级复制到 `pages/dist/files/`(方案甲: 站点根 = pages/dist,
@@ -64,6 +64,9 @@ SITE_BUILD_REPO = "https://github.com/WencueCryforme/NaiWa"
 # 构建信息输出格式:本地时区 yyyy-MM-dd HH:mm:ss+HH:mm
 BUILD_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
+# 版本号文件,位于仓库根目录,构建时读入并注入到页脚
+DEFAULT_VERSION_FILE = "VERSION"
+
 
 def repo_root() -> str:
     """仓库根目录:以脚本所在目录的上级为基准解析,不依赖当前工作目录"""
@@ -118,8 +121,17 @@ def load_types(catalog_dir: str) -> list:
     return data.get("types", [])
 
 
+def read_version(version_file: str) -> str:
+    """读取仓库根目录的版本号文件,失败时返回空字符串"""
+    try:
+        with open(resolve(version_file), "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except (OSError, IOError):
+        return ""
+
+
 def load_catalog_data(catalog_dir: str) -> dict:
-    """合并全部类型 catalog 为前端数据结构 {types: [{name, albums}]}"""
+    """合并全部类型 catalog 为前端数据结构 {types: [{name, format, albums}]}"""
     types = load_types(catalog_dir)
     merged = []
     for type_name in types:
@@ -129,17 +141,23 @@ def load_catalog_data(catalog_dir: str) -> dict:
             continue
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        merged.append({"name": type_name, "albums": data.get("albums", [])})
+        merged.append({
+            "name": type_name,
+            "format": data.get("format", ""),
+            "albums": data.get("albums", []),
+        })
     return {"types": merged}
 
 
-def write_catalog_data_js(output_dir: str, catalog_data: dict, build_time: str) -> str:
+def write_catalog_data_js(output_dir: str, catalog_data: dict, build_time: str, version: str) -> str:
     """把 catalog 数据与构建信息写为前端可加载的 JS 文件,返回相对路径"""
+    build_info = {"time": build_time, "repo": SITE_BUILD_REPO}
+    if version:
+        build_info["version"] = version
     lines = [
         "/* 由 scripts/build_pages.py 生成,请勿手工编辑 */",
         "window.NAIWA_CATALOG = %s;" % json.dumps(catalog_data, ensure_ascii=False, separators=(",", ":")),
-        "window.NAIWA_BUILD = %s;" % json.dumps(
-            {"time": build_time, "repo": SITE_BUILD_REPO}, ensure_ascii=False, separators=(",", ":")),
+        "window.NAIWA_BUILD = %s;" % json.dumps(build_info, ensure_ascii=False, separators=(",", ":")),
     ]
     path = os.path.join(output_dir, CATALOG_DATA_NAME)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
@@ -197,7 +215,7 @@ def list_stale_files(output_dir: str, media_source_dir: str) -> list:
     return stale
 
 
-def build(template_dir: str, media_source_dir: str, output_dir: str, catalog_dir: str) -> int:
+def build(template_dir: str, media_source_dir: str, output_dir: str, catalog_dir: str, version_file: str) -> int:
     """执行构建,返回进程退出码"""
     output_dir = resolve(output_dir)
     os.makedirs(output_dir, exist_ok=True)
@@ -208,9 +226,10 @@ def build(template_dir: str, media_source_dir: str, output_dir: str, catalog_dir
         return 2
 
     build_time = format_tz(datetime.fromtimestamp(latest_mtime(resolve(media_source_dir)), local_tz()))
+    version = read_version(version_file)
 
     copied = copy_template(output_dir, template_dir)
-    data_path = write_catalog_data_js(output_dir, catalog_data, build_time)
+    data_path = write_catalog_data_js(output_dir, catalog_data, build_time, version)
     media_count, media_root = copy_media(output_dir, media_source_dir)
     stale = list_stale_files(output_dir, media_source_dir)
 
@@ -228,9 +247,10 @@ def main() -> int:
     parser.add_argument("--media-source-dir", default=DEFAULT_MEDIA_SOURCE_DIR, help="媒体源目录(默认 dist)")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="产物输出目录(默认 pages/dist)")
     parser.add_argument("--catalog-dir", default=DEFAULT_CATALOG_DIR, help="catalog 目录(默认 catalog)")
+    parser.add_argument("--version-file", default=DEFAULT_VERSION_FILE, help="版本号文件(默认 VERSION)")
     args = parser.parse_args()
 
-    return build(args.template_dir, args.media_source_dir, args.output_dir, args.catalog_dir)
+    return build(args.template_dir, args.media_source_dir, args.output_dir, args.catalog_dir, args.version_file)
 
 
 if __name__ == "__main__":
