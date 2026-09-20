@@ -237,10 +237,49 @@ img { display: block; }
   box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
-  transition: transform 0.15s;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
 }
-.media-card:hover { transform: translateY(-2px); }
-.media-thumb-wrap {
+.media-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(36, 49, 44, 0.14);
+  border-color: var(--accent);
+}
+
+/* 标签横幅: 悬浮于媒体区域顶部, 列出该素材所属合集 */
+.card-label-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  /* color-mix 在旧浏览器不支持时自动回退到透明, 不影响功能 */
+  background: color-mix(in srgb, var(--accent) 50%, transparent);
+  pointer-events: none;
+}
+body.hide-label-banner .card-label-banner { display: none !important; }
+.card-label-banner:empty { display: none; }
+.card-label-tag {
+  display: inline-block;
+  margin: 3px 2px;
+  padding: 2px 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(100% - 8px);
+  pointer-events: auto;
+}
+
+.card-media-wrap {
   position: relative;
   width: 100%;
   aspect-ratio: var(--ratio, 1 / 1);
@@ -252,7 +291,7 @@ img { display: block; }
 /* 原始比例图片: 加载完成前保持正方形占位, 加载后由媒体自身撑开高度
    此处必须与参考实现一致, 不能无条件 aspect-ratio: auto, 否则音频等
    无内在尺寸的媒体(其元素不参与文档流或尺寸为 0)会让卡片高度塌陷 */
-.media-thumb-wrap.ratio-original.media-loaded { aspect-ratio: auto; height: auto; }
+.card-media-wrap.ratio-original.media-loaded { aspect-ratio: auto; height: auto; }
 
 /* 图片铺满卡片: 固定比例模式下由容器裁切, 原始比例模式下按宽度撑满、高度自适应 */
 .media-thumb {
@@ -262,7 +301,7 @@ img { display: block; }
   object-position: center;
   display: block;
 }
-.media-thumb-wrap.ratio-original .media-thumb {
+.card-media-wrap.ratio-original .media-thumb {
   width: 100%;
   height: auto;
   display: block;
@@ -273,7 +312,7 @@ img { display: block; }
 .card-media.loaded { opacity: 1; transition: opacity 0.4s ease; }
 
 /* 骨架屏: 媒体尚未就绪时以流光占位, 替代空白区域 */
-.media-thumb-wrap:not(.media-loaded):not(.thumb-failed)::before {
+.card-media-wrap:not(.media-loaded):not(.thumb-failed)::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -309,11 +348,11 @@ img { display: block; }
 }
 /* 音频元素不可绝对定位会撑破比例盒, 因此改为让其脱离布局但由 JS 保证 wrap 有高度;
    实际做法与参考实现一致: wrap 始终有 aspect-ratio 兜底, 音频只作为能力载体 */
-.media-thumb-wrap:has(.audio-el) {
+.card-media-wrap:has(.audio-el) {
   aspect-ratio: 1 / 1;
   background: var(--accent-soft);
 }
-.media-thumb-wrap:has(.audio-el)::after {
+.card-media-wrap:has(.audio-el)::after {
   content: '\266B';
   position: absolute;
   top: 50%;
@@ -352,7 +391,7 @@ img { display: block; }
   transform: translate(-50%, -50%) scale(1.1);
 }
 /* 音频卡片无画面, 播放按钮居中偏上, 给底部控制栏留出空间 */
-.media-thumb-wrap:has(.audio-el) .card-play-overlay { top: 40%; }
+.card-media-wrap:has(.audio-el) .card-play-overlay { top: 40%; }
 
 /* 视频音频卡片的底部播放控制栏, 悬停或播放中显示 */
 .card-player-bar {
@@ -370,7 +409,7 @@ img { display: block; }
   transition: opacity 0.15s;
   pointer-events: none;
 }
-.media-thumb-wrap:hover .card-player-bar,
+.card-media-wrap:hover .card-player-bar,
 .card-player-bar.visible { opacity: 1; pointer-events: auto; }
 .card-ctrl-play,
 .card-ctrl-mute {
@@ -431,55 +470,68 @@ img { display: block; }
   flex-shrink: 0;
 }
 
-.media-fav {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.85);
-  color: #999;
-  font-size: 16px;
-  line-height: 1;
+/* ---------- 卡片操作栏 ----------
+   结构与参考实现一致: 紧贴卡片底部、与媒体区域分离的一行按钮, 每个按钮
+   纵向排布图标与计数。浏览为只读展示, 其余按钮分别触发点赞/收藏/全屏/分享 */
+.control-bar {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.15s;
-  z-index: 5;
+  gap: 2px;
+  padding: 6px 8px;
+  background: var(--card);
+  border-top: 1px solid var(--border);
 }
-.media-fav:hover { transform: scale(1.15); }
-.media-fav.on { color: #f0a020; }
-.media-share {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.85);
-  color: #666;
+.ctrl-btn {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  transition: transform 0.15s, color 0.15s;
-  z-index: 5;
-}
-.media-share:hover { transform: scale(1.15); color: var(--accent); }
-.media-share svg { width: 16px; height: 16px; }
-.media-caption {
-  padding: 8px 12px;
-  font-size: 13px;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 0;
+  padding: 4px 2px;
+  font-size: 14px;
   color: var(--text-dim);
-  white-space: nowrap;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
   overflow: hidden;
-  text-overflow: ellipsis;
-  text-align: center;
 }
+.ctrl-btn:hover {
+  background: var(--bg-soft);
+  color: var(--text);
+}
+/* 浏览计数为只读展示, 不接受点击反馈 */
+.ctrl-btn-static { cursor: default; opacity: 0.6; }
+.ctrl-btn-static:hover { background: none; color: var(--text-dim); }
+.ctrl-btn .ctrl-icon { font-size: 16px; line-height: 1; }
+.ctrl-btn .ctrl-count { font-size: 10px; line-height: 1; color: var(--text-dim); }
+.ctrl-btn.active-like {
+  color: var(--accent);
+  animation: pulseLike 0.3s ease-out;
+}
+@keyframes pulseLike {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+.ctrl-btn.active-fav {
+  color: #f0a020;
+  animation: pulseFav 0.3s ease-out;
+}
+@keyframes pulseFav {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
 /* 素材缺失或读取失败时的占位提示, 同时禁用卡片交互 */
-.media-thumb-wrap.thumb-failed .media-thumb { display: none; }
+.card-media-wrap.thumb-failed .media-thumb { display: none; }
 /* 失败占位改为铺满居中: 基类已无 flex 居中, 这里用绝对定位自行居中 */
-.media-thumb-wrap.thumb-failed::before {
+.card-media-wrap.thumb-failed::before {
   content: '素材加载失败';
   position: absolute;
   inset: 0;
@@ -495,11 +547,11 @@ img { display: block; }
   padding: 0 8px;
 }
 /* 失败态下隐藏音频音符标记, 避免与失败提示重叠 */
-.media-thumb-wrap.thumb-failed:has(.audio-el) { background: var(--bg-soft); }
-.media-thumb-wrap.thumb-failed:has(.audio-el)::after { content: none; }
+.card-media-wrap.thumb-failed:has(.audio-el) { background: var(--bg-soft); }
+.card-media-wrap.thumb-failed:has(.audio-el)::after { content: none; }
 /* 禁用态沿用参考实现的视觉语言: 整体降透明与去色, 并隐藏播放控件 */
 .media-card.card-disabled { cursor: not-allowed; opacity: 0.5; }
-.media-card.card-disabled .media-thumb-wrap { cursor: not-allowed; filter: grayscale(0.9); }
+.media-card.card-disabled .card-media-wrap { cursor: not-allowed; filter: grayscale(0.9); }
 .media-card.card-disabled .card-play-overlay,
 .media-card.card-disabled .card-player-bar { display: none; }
 
@@ -544,6 +596,7 @@ img { display: block; }
   font-size: 13px;
   line-height: 24px;
   text-align: center;
+  z-index: 3;
 }
 
 /* ---------- 到底提示 ---------- */
@@ -802,9 +855,8 @@ img { display: block; }
 .toast.warn { border-color: #e0b04c; }
 .toast.degrade { border-color: #d98c8c; }
 
-/* ---------- SEO 语义结构与站点地图 ----------
-   本节样式同时服务两种渲染路径: 页面内已有的站点级 h1 与视图 h2, 以及由构建脚本
-   注入 index.html 的站点地图区(含无脚本兜底提示)。未注入时多余样式不生效, 无副作用 */
+/* ---------- SEO 语义结构 ----------
+   站点级 h1 与各视图 h2 用于建立标题层级: h1 视觉隐藏, h2 作为视图小标题显示 */
 .seo-sr-only {
   position: absolute;
   width: 1px;
@@ -822,66 +874,6 @@ img { display: block; }
   color: var(--text-dim);
   margin: 0 0 12px;
 }
-.seo-noscript {
-  margin: 0 0 16px;
-  padding: 12px 16px;
-  border-radius: 10px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  font-size: 13.5px;
-}
-.seo-map {
-  margin: 8px auto 28px;
-  max-width: 1080px;
-  padding: 0 16px;
-  text-align: center;
-}
-.seo-map-brief {
-  display: inline-block;
-  padding: 10px 20px;
-  border-radius: 999px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  color: var(--accent);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  list-style: none;
-}
-.seo-map-brief::-webkit-details-marker { display: none; }
-.seo-map[open] .seo-map-brief { margin-bottom: 18px; }
-.seo-type-block {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px 20px;
-  margin-bottom: 16px;
-  text-align: center;
-}
-.seo-type-block h3 { margin: 0 0 12px; font-size: 16px; color: var(--text); }
-.seo-album-list,
-.seo-file-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.seo-album-list > li { padding: 9px 0; border-bottom: 1px solid var(--border); }
-.seo-album-list > li:last-child { border-bottom: none; }
-.seo-album-list > li > a { color: var(--text); font-weight: 600; text-decoration: none; }
-.seo-album-list > li > a:hover { color: var(--accent); }
-.seo-count { color: var(--text-dim); font-size: 12px; margin-left: 8px; }
-.seo-file-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  justify-content: center;
-  margin-top: 8px;
-}
-.seo-file-list a { color: var(--text-dim); font-size: 13px; text-decoration: none; }
-.seo-file-list a:hover { color: var(--accent); }
-.seo-kind { color: var(--text-dim); font-size: 12px; margin-left: 6px; }
-.seo-empty { color: var(--text-dim); font-size: 13px; }
 
 /* ---------- 移动端适配 ---------- */
 @media (max-width: 767px) {

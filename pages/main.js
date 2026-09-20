@@ -111,7 +111,12 @@
   const favorites = store.get('favorites', []);          /* 有序收藏 key 列表, 新收藏位于最前 */
   const favSet = new Set(favorites);
   const favNotified = new Set(store.get('favNotified', []));  /* 已上报过后端的收藏 key, 只增不删 */
+  const likes = store.get('likes', []);                  /* 有序点赞 key 列表, 新点赞位于最前 */
+  const likeSet = new Set(likes);
+  const likeNotified = new Set(store.get('likeNotified', [])); /* 已上报过后端的点赞 key, 只增不删 */
   const viewCooldowns = store.get('viewCooldowns', {});       /* key -> 上次浏览上报时间戳 */
+  /* 后端统计缓存: key -> {views, likes, favorites}; 后端关闭时保持为空, 计数统一显示 0 */
+  const statsCache = {};
 
   let currentView = store.get('currentView', 'home'); /* home/album/favorites/hot/about */
   let currentType = catalog.types.length ? catalog.types[0].name : '';
@@ -210,6 +215,42 @@
     store.set('favNotified', Array.from(favNotified));
     reportAction(key, 'favorite');
   }
+  /* 点赞上报: 同一媒体只上报一次, 取消点赞不抵消已计数值 */
+  function reportLike(key) {
+    if (!backendOn || likeNotified.has(key)) return;
+    likeNotified.add(key);
+    store.set('likeNotified', Array.from(likeNotified));
+    reportAction(key, 'like');
+  }
+  /* 读取某媒体的某项统计计数; 后端关闭或尚未拉取时返回 0 */
+  function countOf(item, field) {
+    const row = statsCache[item.key];
+    return row ? (Number(row[field]) || 0) : 0;
+  }
+  /* 计数缩写: 超过一万按 k 显示, 与参考实现的展示口径一致 */
+  function formatCount(n) {
+    const num = Number(n) || 0;
+    if (num >= 10000) return (num / 10000).toFixed(1).replace(/\.0$/, '') + 'w';
+    if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+    return String(num);
+  }
+  /* 卡片标签: 当前以合集名作为唯一天然标签, 便于同合集素材在视觉上归组 */
+  function labelsForItem(item) {
+    return item.album ? [item.album] : [];
+  }
+  /* 批量拉取统计并写入缓存, 随后刷新已渲染卡片的计数 */
+  function refreshStats(keys) {
+    if (!backendOn || !keys.length) return Promise.resolve();
+    return apiGet('/stats.php?stats&' + keys.map((k) => 'media[]=' + encodeURIComponent(encodeKey(k))).join('&'))
+      .then((data) => {
+        (data.stats || []).forEach((row) => {
+          if (row && row.media) statsCache[row.media] = row;
+        });
+        cardInstances.forEach((inst) => inst.syncCounts());
+      })
+      .catch(() => { /* 静默失败, 计数保持缓存值 */ });
+  }
+
   function fetchHot() {
     if (!backendOn) return Promise.reject(new Error('backend off'));
     return apiGet('/stats.php?hot&limit=200').then((data) => data.hot || []);
@@ -358,7 +399,8 @@
     document.querySelectorAll('.grid-container').forEach((g) => {
       g.style.setProperty('--cols', settings.cols);
     });
-    document.querySelectorAll('.media-thumb-wrap').forEach((w) => {
+    /* 媒体视窗比例: 固定比例写入 --ratio, 原始比例交由加载完成后的媒体自身撑开 */
+    document.querySelectorAll('.card-media-wrap').forEach((w) => {
       if (settings.ratio === 'original') {
         w.style.removeProperty('--ratio');
         w.classList.add('ratio-original');
@@ -367,9 +409,8 @@
         w.classList.remove('ratio-original');
       }
     });
-    document.querySelectorAll('.media-caption').forEach((c) => {
-      c.style.display = settings.caption ? '' : 'none';
-    });
+    /* 卡片标签横幅显隐: 由 body 上的类名统一控制, 与参考实现一致 */
+    document.body.classList.toggle('hide-label-banner', !settings.caption);
   }
 
   /* ---------- 媒体卡片 ----------
@@ -389,6 +430,51 @@
     return m + ':' + (s < 10 ? '0' + s : s);
   }
 
+  /* 卡片操作按钮: 图标在上、计数在下的纵向按钮, 与参考实现的 ctrl-btn 结构一致。
+     计数传入 undefined 时不渲染计数行, 用于全屏这类无计数的动作 */
+  function createCtrlBtn(iconHtml, tooltip, onClick, count) {
+    const btn = document.createElement('button');
+    btn.className = 'ctrl-btn';
+    btn.type = 'button';
+    btn.title = tooltip;
+    let html = '<span class="ctrl-icon">' + iconHtml + '</span>';
+    if (count !== undefined) {
+      html += '<span class="ctrl-count">' + formatCount(count) + '</span>';
+    }
+    btn.innerHTML = html;
+    if (count !== undefined) {
+      btn.countEl = btn.querySelector('.ctrl-count');
+      /* 记录原始计数, 供本地乐观增减时继续在此基础上运算 */
+      btn.countEl.dataset.raw = String(Number(count) || 0);
+    }
+    if (onClick) {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onClick();
+      });
+    }
+    return btn;
+  }
+
+  /* 顶部标签横幅: 列出该素材命中的分类标签, 无标签时整条隐藏 */
+  function buildLabelBanner(card, item) {
+    const banner = document.createElement('div');
+    banner.className = 'card-label-banner';
+    const labels = labelsForItem(item);
+    if (labels.length === 0) {
+      banner.style.display = 'none';
+    } else {
+      labels.forEach((text) => {
+        const tag = document.createElement('span');
+        tag.className = 'card-label-tag';
+        tag.textContent = text;
+        banner.appendChild(tag);
+      });
+    }
+    card.appendChild(banner);
+    return banner;
+  }
+
   class MediaCard {
     constructor(item, opts) {
       opts = opts || {};
@@ -398,14 +484,18 @@
       this.playerBar = null;
       this.playOverlay = null;
       this.failed = false;
+      this.btns = {};
 
       const card = document.createElement('div');
       card.className = 'media-card';
       card.dataset.key = item.key;
 
+      /* 标签横幅: 悬浮于媒体区域上方, 与参考实现一致 */
+      this.labelBanner = buildLabelBanner(card, item);
+
       /* 媒体区域: 懒加载与播放控件的挂载点 */
       const wrap = document.createElement('div');
-      wrap.className = 'media-thumb-wrap';
+      wrap.className = 'card-media-wrap';
       wrap.title = item.file;
       this.wrap = wrap;
 
@@ -416,7 +506,6 @@
       if (this.kind === 'video' || this.kind === 'audio') {
         this.buildCardPlayer();
       }
-      buildCardActions(wrap, item);
 
       wrap.addEventListener('click', (e) => {
         /* 控制栏与悬浮按钮自行 stopPropagation, 到达这里的点击才进入全屏 */
@@ -425,11 +514,13 @@
       });
       card.appendChild(wrap);
 
-      const cap = document.createElement('div');
-      cap.className = 'media-caption';
-      cap.textContent = item.file;
-      card.appendChild(cap);
+      /* 操作栏: 位于卡片底部, 独立于媒体区域, 与参考实现一致 */
+      const controlBar = document.createElement('div');
+      controlBar.className = 'control-bar';
+      this.buildButtons(controlBar);
+      card.appendChild(controlBar);
 
+      /* 热门视图的排名角标 */
       if (opts.rank) {
         const rank = document.createElement('span');
         rank.className = 'media-rank';
@@ -439,6 +530,95 @@
 
       this.el = card;
       cardInstances.set(item.key, this);
+    }
+
+    /* 构建卡片底部操作栏: 浏览为静态展示, 其余按钮触发对应动作。
+       计数优先取后端统计; 后端未启用时以本地点赞/收藏状态兜底, 保证按钮
+       的激活态与数字自洽, 不出现"已点赞但显示 0"的矛盾 */
+    buildButtons(controlBar) {
+      const b = this.btns;
+      const item = this.item;
+      const liked = likeSet.has(item.key);
+      const faved = favSet.has(item.key);
+      const likeBase = statsCache[item.key] ? countOf(item, 'likes') : (liked ? 1 : 0);
+      const favBase = statsCache[item.key] ? countOf(item, 'favorites') : (faved ? 1 : 0);
+
+      b.view = createCtrlBtn('&#128065;', '浏览量', null, countOf(item, 'views'));
+      b.view.classList.add('ctrl-btn-static');
+      b.view.disabled = true;
+
+      b.like = createCtrlBtn('&#9829;', liked ? '已赞' : '点赞', () => this.toggleLike(), likeBase);
+      if (liked) b.like.classList.add('active-like');
+
+      b.favorite = createCtrlBtn('&#9733;', faved ? '取消收藏' : '收藏', () => this.toggleFav(), favBase);
+      if (faved) b.favorite.classList.add('active-fav');
+
+      b.fullscreen = createCtrlBtn('&#9974;', '全屏', () => openFullscreen(item));
+
+      b.share = createCtrlBtn('&#128279;', '分享', () => copyShareLink(item));
+
+      controlBar.append(b.view, b.like, b.favorite, b.fullscreen, b.share);
+    }
+
+    /* 当前按钮上显示的计数, 作为本地乐观增减的基准 */
+    shownCount(action) {
+      const btn = this.btns[action];
+      if (!btn || !btn.countEl) return 0;
+      return Number(btn.countEl.dataset.raw || 0) || 0;
+    }
+
+    /* 写入按钮计数: 同时记录原始值, 便于后续继续增减而不丢失精度 */
+    setShownCount(action, value) {
+      const btn = this.btns[action];
+      if (!btn || !btn.countEl) return;
+      const n = Math.max(0, Number(value) || 0);
+      btn.countEl.dataset.raw = String(n);
+      btn.countEl.textContent = formatCount(n);
+    }
+
+    /* 点赞: 本地即时反馈并乐观更新计数, 后端开启时同步上报 */
+    toggleLike() {
+      const item = this.item;
+      const btn = this.btns.like;
+      const liked = likeSet.has(item.key);
+      if (liked) {
+        likeSet.delete(item.key);
+        likes.splice(likes.indexOf(item.key), 1);
+        btn.classList.remove('active-like');
+        btn.title = '点赞';
+      } else {
+        likeSet.add(item.key);
+        likes.unshift(item.key);
+        btn.classList.add('active-like');
+        btn.title = '已赞';
+        reportLike(item.key);
+      }
+      this.setShownCount('like', this.shownCount('like') + (liked ? -1 : 1));
+      store.set('likes', likes);
+    }
+
+    /* 收藏: 与收藏视图共享同一份数据源, 计数同样本地乐观更新 */
+    toggleFav() {
+      const item = this.item;
+      const btn = this.btns.favorite;
+      const wasFav = favSet.has(item.key);
+      toggleFavorite(item);
+      const on = favSet.has(item.key);
+      btn.classList.toggle('active-fav', on);
+      btn.title = on ? '取消收藏' : '收藏';
+      this.setShownCount('favorite', this.shownCount('favorite') + (on && !wasFav ? 1 : (!on && wasFav ? -1 : 0)));
+    }
+
+    /* 计数同步: 后端返回最新统计后刷新浏览/点赞/收藏三个计数 */
+    syncCounts() {
+      const item = this.item;
+      const map = { view: 'views', like: 'likes', favorite: 'favorites' };
+      Object.keys(map).forEach((action) => {
+        const btn = this.btns[action];
+        if (!btn || !btn.countEl) return;
+        /* 后端值作为新基准覆盖本地缓存值 */
+        this.setShownCount(action, countOf(item, map[action]));
+      });
     }
 
     /* 按类型创建媒体元素; 图片走 data-src 懒加载, 视频音频走元数据预加载 */
@@ -629,32 +809,6 @@
     }
   }
 
-  /* 卡片悬浮操作按钮(收藏/分享), 与媒体区域解耦, 便于复用 */
-  function buildCardActions(wrap, item) {
-    const fav = document.createElement('button');
-    fav.className = 'media-fav' + (favSet.has(item.key) ? ' on' : '');
-    fav.innerHTML = '&#9733;';
-    fav.title = favSet.has(item.key) ? '取消收藏' : '收藏';
-    fav.addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggleFavorite(item);
-      fav.classList.toggle('on', favSet.has(item.key));
-      fav.title = favSet.has(item.key) ? '取消收藏' : '收藏';
-    });
-    wrap.appendChild(fav);
-
-    const share = document.createElement('button');
-    share.className = 'media-share';
-    share.title = '复制分享链接';
-    share.setAttribute('aria-label', '复制分享链接');
-    share.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>';
-    share.addEventListener('click', (e) => {
-      e.stopPropagation();
-      copyShareLink(item);
-    });
-    wrap.appendChild(share);
-  }
-
   /* 创建或复用卡片: 已登记且仍在 DOM 中的实例直接返回, 否则新建 */
   function createMediaCard(item, opts) {
     const existing = cardInstances.get(item.key);
@@ -744,9 +898,12 @@
     isLoadingPage = true;
     const start = albumPage * PAGE_SIZE;
     if (start < albumItems.length) {
-      albumItems.slice(start, start + PAGE_SIZE).forEach((item) => {
+      const pageItems = albumItems.slice(start, start + PAGE_SIZE);
+      pageItems.forEach((item) => {
         dom.albumGrid.appendChild(createMediaCard(item));
       });
+      /* 本页卡片就位后拉取统计, 命中后回填浏览/点赞/收藏计数 */
+      refreshStats(pageItems.map((it) => it.key));
       albumPage += 1;
       applySettings();
     }
@@ -804,6 +961,7 @@
       dom.favoritesGrid.parentNode.insertBefore(bar, dom.favoritesGrid);
     }
     items.forEach((item) => dom.favoritesGrid.appendChild(createMediaCard(item)));
+    refreshStats(items.map((it) => it.key));
     applySettings();
   }
 
@@ -862,6 +1020,8 @@
         /* 后端返回的 media 已是原始键, 无需再次解码 */
         const item = itemByKey(row.media);
         if (!item) return;
+        /* 热门接口已带回统计, 直接写入缓存供卡片计数使用 */
+        statsCache[item.key] = row;
         appended += 1;
         dom.hotGrid.appendChild(createMediaCard(item, { rank: String(start + appended) }));
       });
@@ -1220,20 +1380,6 @@
     dom.noticeBar.hidden = false;
   }
 
-  /* ---------- 站点地图区 ----------
-     构建脚本会把全部类型/合集/素材的链接注入 <details id="siteMap">, 既有 SEO 价值也作为
-     用户侧的完整目录。默认收起, 但仅在 JavaScript 可用时才收起: 无脚本环境下保持展开,
-     否则内容会被折叠而不可见。展开状态在本机记忆 */
-  function bindSiteMap() {
-    const box = $('siteMap');
-    if (!box) return;
-    const KEY = 'siteMapOpen';
-    let open = store.get(KEY, false);
-    /* 深链进入合集页后默认收起, 避免把交互视图推到页面下方 */
-    box.open = open;
-    box.addEventListener('toggle', () => store.set(KEY, box.open));
-  }
-
   /* ---------- 初始化 ---------- */
   function init() {
     /* 刷新页面时回到顶部, 不恢复上次滚动位置 */
@@ -1256,7 +1402,6 @@
       renderSettings();
       applySettings();
     });
-    bindSiteMap();
     dom.btnBackTop.classList.toggle('show', window.scrollY > window.innerHeight);
     inited = true;
     /* 入口深链: 若 URL 带 which 参数, 跳转到对应模块/专辑/卡片 */

@@ -267,58 +267,6 @@ body.seo-page {
   padding: 6px 0;
 }
 
-/* 首页注入的站点地图区: 表格列文本水平居中 */
-.seo-map {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 0 20px 34px;
-  text-align: center;
-}
-
-.seo-map-brief {
-  display: inline-block;
-  margin: 0 0 22px;
-  padding: 14px 22px;
-  background: var(--seo-surface);
-  border: 1px solid var(--seo-border);
-  border-radius: 12px;
-  text-align: left;
-  cursor: pointer;
-  color: var(--seo-muted);
-  font-size: 13.5px;
-  max-width: 100%;
-}
-
-.seo-map-brief summary {
-  color: var(--seo-accent);
-  font-weight: 600;
-  font-size: 14px;
-  list-style: none;
-}
-
-.seo-map-brief summary::-webkit-details-marker {
-  display: none;
-}
-
-.seo-map-brief[open] summary {
-  margin-bottom: 12px;
-}
-
-.seo-type-block {
-  background: var(--seo-surface);
-  border: 1px solid var(--seo-border);
-  border-radius: 12px;
-  padding: 18px 22px;
-  margin-bottom: 18px;
-  text-align: center;
-}
-
-.seo-type-block h3 {
-  margin: 0 0 14px;
-  font-size: 16px;
-  text-align: center;
-}
-
 .seo-album-list > li {
   padding: 10px 0;
   border-bottom: 1px solid var(--seo-border);
@@ -354,11 +302,6 @@ body.seo-page {
 
 .seo-file-list a:hover {
   color: var(--seo-accent);
-}
-
-.seo-empty {
-  color: var(--seo-muted);
-  font-size: 13px;
 }
 
 /* 页脚 */
