@@ -15,6 +15,14 @@
 
 ---
 
+## 奶蛙是什么？
+
+你连奶蛙都不知道？
+
+<img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙大笑.gif"/><img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙捧腹大笑.gif"/><img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙拍墙大笑.jpg"/>
+
+先去欣赏 [奶蛙的爆笑](https://xinyewebsite.com/games/milk-frog/) 。
+
 ## 表情包
 
 - 统一文件格式: `.jpg` `.gif`
@@ -35,3 +43,9 @@
 Copyright &copy; 2026 Nobody
 
 详见 [COPYRIGHT](./COPYRIGHT)
+
+
+## 友情链接
+
+- 奶蛙档案馆: https://www.naiwa.world/
+- 奶蛙爆笑视频游戏: https://xinyewebsite.com/games/milk-frog/

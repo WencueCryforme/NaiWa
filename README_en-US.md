@@ -15,6 +15,14 @@ NaiWa's Universe
 
 ---
 
+## What is NaiWa?
+
+You don't even know about milk frogs?
+
+<img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙大笑.gif"/><img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙捧腹大笑.gif"/><img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙拍墙大笑.jpg"/>
+
+Go enjoy [the hilarious milk frogs](https://xinyewebsite.com/games/milk-frog/) first.
+
 ## Sticker Packs
 
 - Unified file format: `.jpg` `.gif`
@@ -35,3 +43,8 @@ This repository is licensed under the [MIT License](./LICENSE).
 Copyright &copy; 2026 Nobody
 
 See [COPYRIGHT](./COPYRIGHT).
+
+## Friend Links
+
+- NaiWa Archive: https://www.naiwa.world/
+- Milk Frog Comedy Game: https://xinyewebsite.com/games/milk-frog/

@@ -276,6 +276,22 @@ img { display: block; }
 }
 .media-fav:hover { transform: scale(1.15); }
 .media-fav.on { color: #f0a020; }
+.media-share {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  color: #666;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s, color 0.15s;
+}
+.media-share:hover { transform: scale(1.15); color: var(--accent); }
+.media-share svg { width: 16px; height: 16px; }
 .media-caption {
   padding: 8px 12px;
   font-size: 13px;

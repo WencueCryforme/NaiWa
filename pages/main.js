@@ -246,6 +246,76 @@
     return name.toLowerCase().endsWith('.gif') ? 'gif' : 'img';
   }
 
+  /* ---------- 分享与深链 ---------- */
+  /* 媒体键(类型/合集/文件)中的 / 在 URL 里会与路径分隔语义冲突, 故编码为 which 参数时换成 __ */
+  function keyToWhich(key) {
+    return key.replace(/\//g, '__');
+  }
+  function buildShareUrl(item) {
+    const base = window.location.origin + window.location.pathname;
+    return base + '?which=' + encodeURIComponent(keyToWhich(item.key));
+  }
+  function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise((resolve, reject) => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.top = '-1000px';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        resolve();
+      } catch (err) { reject(err); }
+    });
+  }
+  function copyShareLink(item) {
+    copyToClipboard(buildShareUrl(item))
+      .then(() => toast('分享链接已复制到剪贴板'))
+      .catch(() => toast('复制失败, 请手动复制地址栏链接'));
+  }
+  /* 解析 ?which= 深链: 还原为媒体键并校验目录真实存在, 不存在则返回 null */
+  function parseWhichKey() {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get('which');
+    if (!raw) return null;
+    const key = decodeURIComponent(raw).replace(/__/g, '/');
+    const item = itemByKey(key);
+    if (!item) return null;
+    const album = findAlbum(item.type, item.album);
+    if (!album || album.files.indexOf(item.file) < 0) return null;
+    return item;
+  }
+  /* 应用深链: 打开对应合集并定位到目标卡片, 解析完成后清理地址栏参数回退干净 URL */
+  function applyWhichDeepLink() {
+    const item = parseWhichKey();
+    if (!item) return;
+    /* 经分享链接进入的访客直接看内容, 不展示首次引导层 */
+    dom.guideLayer.hidden = true;
+    openAlbum(item.type, item.album);
+    const targetIndex = albumItems.findIndex((i) => i.key === item.key);
+    if (targetIndex >= 0) {
+      /* 加载足够分页, 使目标卡片进入 DOM, 再滚动到视野中央 */
+      while (albumPage * PAGE_SIZE <= targetIndex) {
+        if (albumPage * PAGE_SIZE >= albumItems.length) break;
+        loadAlbumPage();
+      }
+      const card = dom.albumGrid.querySelector('[data-key="' + item.key + '"]');
+      if (card) card.scrollIntoView({ block: 'center' });
+    }
+    /* 解析完成后立即清理地址栏的 which 参数, 回退为干净 URL(不刷新页面) */
+    const cleanSearch = new URLSearchParams(window.location.search);
+    cleanSearch.delete('which');
+    const qs = cleanSearch.toString();
+    history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+    openFullscreen(item);
+  }
+
   /* ---------- 设置应用 ---------- */
   function applySettings() {
     document.documentElement.dataset.theme = settings.theme;
@@ -271,6 +341,7 @@
     opts = opts || {};
     const card = document.createElement('div');
     card.className = 'media-card';
+    card.dataset.key = item.key;
 
     const wrap = document.createElement('div');
     wrap.className = 'media-thumb-wrap';
@@ -297,6 +368,17 @@
       fav.title = favSet.has(item.key) ? '取消收藏' : '收藏';
     });
     wrap.appendChild(fav);
+
+    const share = document.createElement('button');
+    share.className = 'media-share';
+    share.title = '复制分享链接';
+    share.setAttribute('aria-label', '复制分享链接');
+    share.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>';
+    share.addEventListener('click', (e) => {
+      e.stopPropagation();
+      copyShareLink(item);
+    });
+    wrap.appendChild(share);
 
     wrap.addEventListener('click', () => openFullscreen(item));
     card.appendChild(wrap);
@@ -780,7 +862,7 @@
     repoLink.href = repoUrl;
     repoLink.target = '_blank';
     repoLink.rel = 'noopener';
-    repoLink.textContent = repoUrl.replace('https://', '');
+    repoLink.textContent = repoUrl;
     rest.appendChild(repoLink);
     rest.appendChild(document.createTextNode(' 仓库为准'));
     dom.siteFooter.appendChild(span);
@@ -816,6 +898,8 @@
     });
     dom.btnBackTop.classList.toggle('show', window.scrollY > window.innerHeight);
     inited = true;
+    /* 入口深链: 若 URL 带 which 参数, 跳转到对应模块/专辑/卡片 */
+    applyWhichDeepLink();
   }
 
   init();
