@@ -51,7 +51,7 @@
     <!-- 合集浏览: 懒加载媒体网格 -->
     <section class="view" id="viewAlbum" hidden>
       <div class="view-empty" id="albumEmpty" hidden>
-        <p>该合集暂无表情包</p>
+        <p>该合集暂无资源</p>
       </div>
       <div class="grid-container" id="albumGrid"></div>
       <div class="no-more" id="albumNoMore" hidden>已经到底了</div>
@@ -60,7 +60,7 @@
     <!-- 收藏 -->
     <section class="view" id="viewFavorites" hidden>
       <div class="view-empty" id="favoritesEmpty" hidden>
-        <p>还没有收藏任何表情包</p>
+        <p>还没有收藏任何资源</p>
         <p class="view-empty-hint">在合集浏览中点击卡片上的星标即可收藏</p>
       </div>
       <div class="grid-container" id="favoritesGrid"></div>
@@ -114,7 +114,7 @@
       <button class="fs-ctrl-btn" id="zoomReset" title="重置">1:1</button>
     </div>
     <div class="fullscreen-media-wrap" id="fullscreenWrap">
-      <img class="fullscreen-media" id="fullscreenMedia" src="" alt="">
+      <div class="fullscreen-media" id="fullscreenMedia"></div>
     </div>
     <div class="fullscreen-caption" id="fullscreenCaption"></div>
   </div>

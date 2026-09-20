@@ -229,21 +229,29 @@
   function albumItemsOf(typeName, albumName) {
     const album = findAlbum(typeName, albumName);
     if (!album) return [];
+    const format = album.format || '';
     return album.files.map((file) => ({
       key: typeName + '/' + albumName + '/' + file,
-      type: typeName, album: albumName, file: file
+      type: typeName, album: albumName, file: file, format: format
     }));
   }
   function itemByKey(key) {
     const parts = key.split('/');
     if (parts.length !== 3) return null;
-    return { key: key, type: parts[0], album: parts[1], file: parts[2] };
+    return { key: key, type: parts[0], album: parts[1], file: parts[2], format: '' };
   }
   function mediaUrl(item) {
     return DIST_SOURCE + encodeKey(item.key);
   }
-  function fileKind(name) {
-    return name.toLowerCase().endsWith('.gif') ? 'gif' : 'img';
+  function fileExt(name) {
+    const i = name.lastIndexOf('.');
+    return i >= 0 ? name.slice(i).toLowerCase() : '';
+  }
+  function mediaTypeOf(item) {
+    const ext = (item.format || fileExt(item.file)).toLowerCase();
+    if (['.mp4', '.webm', '.mov', '.mkv'].indexOf(ext) >= 0) return 'video';
+    if (['.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a'].indexOf(ext) >= 0) return 'audio';
+    return 'image';
   }
 
   /* ---------- 分享与深链 ---------- */
@@ -345,17 +353,41 @@
 
     const wrap = document.createElement('div');
     wrap.className = 'media-thumb-wrap';
-    const img = document.createElement('img');
-    img.className = 'media-thumb';
-    img.loading = 'lazy';
-    img.alt = item.file;
-    img.src = mediaUrl(item);
-    /* 素材缺失或读取失败时给出可见占位, 避免留下浏览器默认的裂图 */
-    img.addEventListener('error', () => {
-      wrap.classList.add('thumb-failed');
-      img.removeAttribute('src');
-    });
-    wrap.appendChild(img);
+    const kind = mediaTypeOf(item);
+    if (kind === 'video') {
+      const video = document.createElement('video');
+      video.className = 'media-thumb media-video';
+      video.preload = 'metadata';
+      video.playsInline = true;
+      video.muted = true;
+      video.src = mediaUrl(item);
+      video.addEventListener('error', () => { wrap.classList.add('thumb-failed'); });
+      wrap.appendChild(video);
+    } else if (kind === 'audio') {
+      wrap.classList.add('media-audio-wrap');
+      const icon = document.createElement('div');
+      icon.className = 'media-audio-icon';
+      icon.innerHTML = '<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-3v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="15" r="3"/></svg>';
+      wrap.appendChild(icon);
+      const audio = document.createElement('audio');
+      audio.className = 'media-thumb audio-el';
+      audio.preload = 'metadata';
+      audio.src = mediaUrl(item);
+      audio.addEventListener('error', () => { wrap.classList.add('thumb-failed'); });
+      wrap.appendChild(audio);
+    } else {
+      const img = document.createElement('img');
+      img.className = 'media-thumb';
+      img.loading = 'lazy';
+      img.alt = item.file;
+      img.src = mediaUrl(item);
+      /* 素材缺失或读取失败时给出可见占位, 避免留下浏览器默认的裂图 */
+      img.addEventListener('error', () => {
+        wrap.classList.add('thumb-failed');
+        img.removeAttribute('src');
+      });
+      wrap.appendChild(img);
+    }
 
     const fav = document.createElement('button');
     fav.className = 'media-fav' + (favSet.has(item.key) ? ' on' : '');
@@ -421,7 +453,7 @@
       name.textContent = album.name;
       const count = document.createElement('p');
       count.className = 'album-count';
-      count.textContent = album.files.length + ' 张表情包';
+      count.textContent = album.files.length + ' 个资源';
       card.appendChild(name);
       card.appendChild(count);
       card.addEventListener('click', () => openAlbum(currentType, album.name));
@@ -491,7 +523,7 @@
       bar.id = 'favoritesBar';
       const label = document.createElement('span');
       label.className = 'favorites-count';
-      label.textContent = '共 ' + items.length + ' 张收藏';
+      label.textContent = '共 ' + items.length + ' 个收藏';
       bar.appendChild(label);
       const clear = document.createElement('button');
       clear.className = 'clear-btn';
@@ -627,10 +659,16 @@
   let fsDragOrigin = null;
   let fsPinchDist = 0;
 
+  function fsMediaEl() {
+    return dom.fullscreenMedia.firstElementChild;
+  }
   function applyFsTransform() {
-    dom.fullscreenMedia.style.transform =
-      'translate(' + fsOffsetX + 'px, ' + fsOffsetY + 'px) scale(' + fsScale + ')';
-    dom.fullscreenMedia.classList.toggle('grabbing', fsDragging);
+    const el = fsMediaEl();
+    if (el && el.tagName === 'IMG') {
+      el.style.transform =
+        'translate(' + fsOffsetX + 'px, ' + fsOffsetY + 'px) scale(' + fsScale + ')';
+      el.classList.toggle('grabbing', fsDragging);
+    }
   }
   function resetFsTransform() {
     fsScale = 1;
@@ -647,8 +685,26 @@
   }
   function openFullscreen(item) {
     resetFsTransform();
-    dom.fullscreenMedia.src = mediaUrl(item);
-    dom.fullscreenMedia.alt = item.file;
+    dom.fullscreenMedia.innerHTML = '';
+    const kind = mediaTypeOf(item);
+    let el;
+    if (kind === 'video') {
+      el = document.createElement('video');
+      el.className = 'fullscreen-media-el';
+      el.controls = true;
+      el.src = mediaUrl(item);
+    } else if (kind === 'audio') {
+      el = document.createElement('audio');
+      el.className = 'fullscreen-media-el';
+      el.controls = true;
+      el.src = mediaUrl(item);
+    } else {
+      el = document.createElement('img');
+      el.className = 'fullscreen-media-el';
+      el.src = mediaUrl(item);
+      el.alt = item.file;
+    }
+    dom.fullscreenMedia.appendChild(el);
     dom.fullscreenCaption.textContent = item.type + ' / ' + item.album + ' / ' + item.file;
     dom.fullscreenModal.hidden = false;
     document.body.style.overflow = 'hidden';
@@ -656,7 +712,9 @@
   }
   function closeFullscreen() {
     dom.fullscreenModal.hidden = true;
-    dom.fullscreenMedia.removeAttribute('src');
+    const media = dom.fullscreenMedia.querySelector('video, audio');
+    if (media) { media.pause(); media.removeAttribute('src'); media.load(); }
+    dom.fullscreenMedia.innerHTML = '';
     document.body.style.overflow = '';
     resetFsTransform();
   }
@@ -753,9 +811,10 @@
       e.preventDefault();
       zoomStep(e.deltaY < 0 ? fsScale * FS_SCALE_STEP : fsScale / FS_SCALE_STEP);
     }, { passive: false });
-    /* 缩放后拖拽平移 */
+    /* 缩放后拖拽平移(仅图片支持) */
     dom.fullscreenMedia.addEventListener('mousedown', (e) => {
-      if (fsScale <= 1) return;
+      const el = fsMediaEl();
+      if (!el || el.tagName !== 'IMG' || fsScale <= 1) return;
       fsDragging = true;
       fsDragOrigin = { x: e.clientX - fsOffsetX, y: e.clientY - fsOffsetY };
       applyFsTransform();
@@ -847,26 +906,42 @@
   /* ---------- 页脚与公告 ---------- */
   function renderFooter() {
     dom.siteFooter.innerHTML = '';
-    const span = document.createElement('span');
-    span.textContent = '作者 ';
+    const fragments = [];
+
+    const version = buildInfo.version || '';
+    const buildTime = buildInfo.time || '';
+    if (version) {
+      const versionSpan = document.createElement('span');
+      versionSpan.textContent = '版本 ' + version + (buildTime ? ' [' + buildTime + ']' : '');
+      fragments.push(versionSpan);
+    }
+
+    const authorSpan = document.createElement('span');
+    authorSpan.textContent = '作者 ';
     const a = document.createElement('a');
     a.href = AUTHOR_URL;
     a.target = '_blank';
     a.rel = 'noopener';
     a.textContent = AUTHOR;
-    span.appendChild(a);
-    const rest = document.createElement('span');
-    rest.textContent = ' | 内容以 ';
+    authorSpan.appendChild(a);
+    fragments.push(authorSpan);
+
+    const repoSpan = document.createElement('span');
+    repoSpan.textContent = '内容以 ';
     const repoUrl = buildInfo.repo || REPO_URL;
     const repoLink = document.createElement('a');
     repoLink.href = repoUrl;
     repoLink.target = '_blank';
     repoLink.rel = 'noopener';
     repoLink.textContent = repoUrl;
-    rest.appendChild(repoLink);
-    rest.appendChild(document.createTextNode(' 仓库为准'));
-    dom.siteFooter.appendChild(span);
-    dom.siteFooter.appendChild(rest);
+    repoSpan.appendChild(repoLink);
+    repoSpan.appendChild(document.createTextNode(' 仓库为准'));
+    fragments.push(repoSpan);
+
+    fragments.forEach((frag, i) => {
+      if (i > 0) dom.siteFooter.appendChild(document.createTextNode(' | '));
+      dom.siteFooter.appendChild(frag);
+    });
   }
   function renderNotice() {
     if (!NOTICE || store.get('noticeRead', '') === NOTICE) return;
