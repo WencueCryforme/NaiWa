@@ -17,13 +17,11 @@ NaiWa's Universe
 
 ## What is NaiWa?
 
-You don't even know about milk frogs?
+You don't even know about NaiWa(milk-frog)?
 
 <img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙大笑.gif"/><img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙捧腹大笑.gif"/><img width="50px" src="./dist/meme/奶蛙爆笑合集/奶蛙拍墙大笑.jpg"/>
 
-<details><summary>Milk frog comedy videos</summary>
-<video width="100%" src="./dist/video/奶蛙爆笑合集/奶蛙爆笑.mp4" controls loop>
-</details>
+[Go to watch NaiWa comedy video](https://WencueCryforme.github.io/NaiWa/files/video/奶蛙爆笑合集/奶蛙爆笑.mp4) .
 
 ## Sticker Packs
 
