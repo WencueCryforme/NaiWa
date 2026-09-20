@@ -11,7 +11,7 @@
 
 </div>
 
-NaiWa's Universe
+NaiWa's Universe <a href="https://WencueCryforme.github.io/NaiWa/" target="_blank">Click here to join</a>
 
 ---
 

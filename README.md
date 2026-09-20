@@ -11,7 +11,7 @@
 
 </div>
 
-奶蛙宇宙
+奶蛙宇宙 <a href="https://WencueCryforme.github.io/NaiWa/" target="_blank">点击此处前往</a>
 
 ---
 

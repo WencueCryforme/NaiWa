@@ -242,27 +242,35 @@ img { display: block; }
 .media-card:hover { transform: translateY(-2px); }
 .media-thumb-wrap {
   position: relative;
+  width: 100%;
   aspect-ratio: var(--ratio, 1 / 1);
   background: var(--bg-soft);
   overflow: hidden;
   cursor: zoom-in;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   transition: background-color 0.2s;
 }
-.media-thumb-wrap.ratio-original { aspect-ratio: auto; }
+/* 原始比例图片: 加载完成前保持正方形占位, 加载后由媒体自身撑开高度
+   此处必须与参考实现一致, 不能无条件 aspect-ratio: auto, 否则音频等
+   无内在尺寸的媒体(其元素不参与文档流或尺寸为 0)会让卡片高度塌陷 */
+.media-thumb-wrap.ratio-original.media-loaded { aspect-ratio: auto; height: auto; }
+
+/* 图片铺满卡片: 固定比例模式下由容器裁切, 原始比例模式下按宽度撑满、高度自适应 */
 .media-thumb {
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
 }
-.media-thumb-wrap.ratio-original .media-thumb { max-height: 420px; }
+.media-thumb-wrap.ratio-original .media-thumb {
+  width: 100%;
+  height: auto;
+  display: block;
+}
 
 /* 图片懒加载: 未就绪时透明, 加载完成后淡入, 避免半成品一闪而过 */
 .card-media.loading { opacity: 0; }
-.card-media.loaded { opacity: 1; transition: opacity 0.35s ease; }
+.card-media.loaded { opacity: 1; transition: opacity 0.4s ease; }
 
 /* 骨架屏: 媒体尚未就绪时以流光占位, 替代空白区域 */
 .media-thumb-wrap:not(.media-loaded):not(.thumb-failed)::before {
@@ -279,6 +287,7 @@ img { display: block; }
   100% { background-position: -200% 0; }
 }
 
+/* 视频铺满卡片; 音频无视觉内容, 由 wrap 的比例盒承载播放控件与装饰 */
 .media-video {
   width: 100%;
   height: 100%;
@@ -286,20 +295,30 @@ img { display: block; }
   display: block;
   background: #000;
 }
-/* 音频卡片以音符底色承载播放控件, 音频元素本身不占版面 */
+.media-card video.media-thumb,
+.media-card audio.media-thumb { cursor: pointer; }
+/* 音频元素保留在文档流内(不可绝对定位), 否则 wrap 失去内在尺寸来源;
+   用 0 高度 + 隐藏控件的方式让它只提供媒体能力而不占版面 */
 .audio-el {
   position: absolute;
-  left: 0;
-  top: 0;
+  inset: 0;
   width: 100%;
   height: 100%;
   opacity: 0;
   pointer-events: none;
 }
-.media-thumb-wrap:has(.audio-el) { background: var(--accent-soft); }
+/* 音频元素不可绝对定位会撑破比例盒, 因此改为让其脱离布局但由 JS 保证 wrap 有高度;
+   实际做法与参考实现一致: wrap 始终有 aspect-ratio 兜底, 音频只作为能力载体 */
+.media-thumb-wrap:has(.audio-el) {
+  aspect-ratio: 1 / 1;
+  background: var(--accent-soft);
+}
 .media-thumb-wrap:has(.audio-el)::after {
   content: '\266B';
   position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   font-size: 44px;
   color: var(--accent);
   opacity: 0.45;
@@ -313,25 +332,27 @@ img { display: block; }
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  font-size: 24px;
   color: #fff;
   background: rgba(0, 0, 0, 0.45);
   border-radius: 50%;
   cursor: pointer;
   z-index: 3;
-  transition: background 0.15s, transform 0.15s;
+  transition: all 0.15s;
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
 }
 .card-play-overlay:hover {
   background: rgba(0, 0, 0, 0.65);
-  transform: translate(-50%, -50%) scale(1.08);
+  transform: translate(-50%, -50%) scale(1.1);
 }
+/* 音频卡片无画面, 播放按钮居中偏上, 给底部控制栏留出空间 */
+.media-thumb-wrap:has(.audio-el) .card-play-overlay { top: 40%; }
 
 /* 视频音频卡片的底部播放控制栏, 悬停或播放中显示 */
 .card-player-bar {
@@ -457,20 +478,28 @@ img { display: block; }
 }
 /* 素材缺失或读取失败时的占位提示, 同时禁用卡片交互 */
 .media-thumb-wrap.thumb-failed .media-thumb { display: none; }
+/* 失败占位改为铺满居中: 基类已无 flex 居中, 这里用绝对定位自行居中 */
 .media-thumb-wrap.thumb-failed::before {
   content: '素材加载失败';
-  position: static;
-  inset: auto;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   animation: none;
   color: var(--text-dim);
   font-size: 13px;
+  z-index: 2;
+  text-align: center;
+  padding: 0 8px;
 }
 /* 失败态下隐藏音频音符标记, 避免与失败提示重叠 */
 .media-thumb-wrap.thumb-failed:has(.audio-el) { background: var(--bg-soft); }
 .media-thumb-wrap.thumb-failed:has(.audio-el)::after { content: none; }
-.media-card.card-disabled { cursor: default; }
-.media-card.card-disabled .media-thumb-wrap { cursor: default; }
+/* 禁用态沿用参考实现的视觉语言: 整体降透明与去色, 并隐藏播放控件 */
+.media-card.card-disabled { cursor: not-allowed; opacity: 0.5; }
+.media-card.card-disabled .media-thumb-wrap { cursor: not-allowed; filter: grayscale(0.9); }
 .media-card.card-disabled .card-play-overlay,
 .media-card.card-disabled .card-player-bar { display: none; }
 

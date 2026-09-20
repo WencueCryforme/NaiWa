@@ -244,7 +244,32 @@
     return { key: key, type: parts[0], album: parts[1], file: parts[2], format: '' };
   }
   function mediaUrl(item) {
-    return DIST_SOURCE + encodeKey(item.key);
+    return mediaBase() + encodeKey(item.key);
+  }
+
+  /* 媒体基址解析: 以文档所在目录为基准把 DIST_SOURCE 解析为绝对 URL。
+     说明: 直接用 './files/' 作为 src 时, 浏览器按“当前文档 URL 的目录”解析,
+     如果页面被放到与媒体目录不同层的路径下(例如某些预览容器),
+     相对路径就会指向不存在的地址而全部 404。
+     这里统一以 document.baseURI(考虑 <base> 标签)为基准解析成绝对地址,
+     既兼容站点根部署, 也兼容任意子路径挂载; raw 跨域源本身是绝对地址, 原样返回 */
+  let cachedMediaBase = null;
+  function mediaBase() {
+    if (cachedMediaBase) return cachedMediaBase;
+    const source = DIST_SOURCE;
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(source)) {
+      cachedMediaBase = source;
+      return cachedMediaBase;
+    }
+    const docBase = (document.baseURI || window.location.href || '');
+    try {
+      cachedMediaBase = new URL(source, docBase).href;
+    } catch (e) {
+      cachedMediaBase = source;
+    }
+    /* 以 / 结尾, 便于与编码后的媒体键直接拼接 */
+    if (cachedMediaBase.charAt(cachedMediaBase.length - 1) !== '/') cachedMediaBase += '/';
+    return cachedMediaBase;
   }
   function fileExt(name) {
     const i = name.lastIndexOf('.');
@@ -556,15 +581,21 @@
 
     /* 媒体加载失败: 给出可见占位并禁用卡片交互, 避免误点进入空全屏 */
     markFailed() {
+      /* 幂等: 释放资源时触发的二次 error 不应重复处理, 避免自激循环 */
+      if (this.failed) return;
       this.failed = true;
+      this.failedKind = this.kind;
       this.wrap.classList.add('thumb-failed');
       this.el.classList.add('card-disabled');
       this.disconnectObserver();
       /* 停止音频视频的在途加载, 释放网络与解码资源 */
       if (this.media && (this.kind === 'video' || this.kind === 'audio')) {
-        this.media.pause();
-        this.media.removeAttribute('src');
-        this.media.load();
+        const el = this.media;
+        /* 先摘掉监听与 src 再 load(), 否则 load() 触发的 error 会再次进入本方法 */
+        el.addEventListener('error', null);
+        el.pause();
+        el.removeAttribute('src');
+        el.load();
       }
       /* 图片失败仅移除 src, 不重新赋回 data-src, 避免触发无限重试 */
       if (this.media && this.kind === 'image') this.media.removeAttribute('src');
@@ -577,6 +608,14 @@
         el.src = el.dataset.src;
         this.disconnectObserver();
       }
+    }
+
+    /* 暂停本卡片的媒体播放: 视图切换或进入全屏时调用, 不做资源释放 */
+    pauseMedia() {
+      if (!this.media) return;
+      if (this.kind !== 'video' && this.kind !== 'audio') return;
+      if (this.media.paused) return;
+      this.media.pause();
     }
 
     destroy() {
@@ -634,6 +673,23 @@
       if (inst && inst.el === el) inst.destroy();
     });
     grid.innerHTML = '';
+  }
+
+  /* 暂停全部卡片内正在播放的媒体: 视图切换时调用, 避免离开视图后仍在出声或耗电 */
+  function pauseAllCardMedia() {
+    cardInstances.forEach((inst) => inst.pauseMedia());
+  }
+
+  /* 暂停隐藏视图内的全部媒体: 以 DOM 中的 video/audio 为准, 兜住未登记为卡片实例的元素 */
+  function pauseHiddenViewMedia() {
+    VIEWS.forEach((v) => {
+      const el = $('view' + v.charAt(0).toUpperCase() + v.slice(1));
+      if (!el || !el.hidden) return;
+      el.querySelectorAll('video, audio').forEach((m) => {
+        if (m.paused) return;
+        m.pause();
+      });
+    });
   }
 
   /* ---------- 首页视图 ---------- */
@@ -841,12 +897,16 @@
       window.scrollTo({ top: 0 });
       return;
     }
+    /* 离开当前视图前结束视图内全部媒体播放, 避免切回首页后视频仍在后台播放 */
+    pauseAllCardMedia();
     currentView = name;
     store.set('currentView', name === 'album' ? 'home' : name);
     VIEWS.forEach((v) => {
       const el = $('view' + v.charAt(0).toUpperCase() + v.slice(1));
       if (el) el.hidden = v !== name;
     });
+    /* 兜底: 隐藏视图内若仍有未登记为卡片实例的媒体, 一并暂停 */
+    pauseHiddenViewMedia();
     dom.crumbBar.hidden = name !== 'album';
     dom.tabNav.querySelectorAll('.tab-btn').forEach((b) => {
       b.classList.toggle('active', b.dataset.view === (name === 'album' ? 'home' : name));
@@ -894,9 +954,7 @@
     resetFsTransform();
     /* 进入全屏前停止卡片内正在播放的媒体, 避免与全屏播放器同时出声 */
     const card = cardInstances.get(item.key);
-    if (card && card.media && (card.kind === 'video' || card.kind === 'audio')) {
-      card.media.pause();
-    }
+    if (card) card.pauseMedia();
     dom.fullscreenMedia.innerHTML = '';
     const kind = mediaTypeOf(item);
     let el;
