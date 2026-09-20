@@ -122,7 +122,9 @@ python scripts/gen_catalog.py     # 合并为 catalog/catalog.<类型>.json
 - 排序结果取决于 pypinyin 的词典,因此该库固定为 0.55.0(工作流与本说明一致);升级版本可能改变条目顺序,升级后需重新生成 catalog
 - 合集级 manifest 只登记文件,不登记 `manifest.json` 自身,跳过隐藏文件(以 `.` 开头)
 - `gen_manifest.py` 会检查 dist 本体内是否残留旧位置的 manifest,发现时列出路径提醒删除
+- `gen_manifest.py` 还会清理 `catalog/dist/` 下已从 dist 中消失的镜像目录: 类型或合集被更名、删除后,旧目录不会被覆盖而会残留,脚本按镜像相对路径到 dist 反查,不存在的目录整棵删除,并自下而上清理因此变空的父目录
 - `gen_catalog.py` 发现任何一级 manifest 缺失时会列出缺失路径并返回退出码 2,先运行 `gen_manifest.py` 即可
+- `gen_catalog.py` 同样会清理 `catalog/` 下已不再对应任何类型的 `catalog.<旧类型>.json`,避免类型更名后留下空壳;只处理符合该命名规则的文件,不触碰其他文件
 - 当 main 分支的 dist 目录或 pages 目录有 push 时,入口工作流 `.github/workflows/while-push-dist-or-pages.yml` 会调用可复用工作流 `.github/workflows/gen-manifest-catalog.yml`,在 GitHub 上依次运行这两个脚本,并以 `github-actions[bot]` 身份把 catalog/ 回传仓库;本地手动运行时按上面的命令顺序执行即可
 
 ## 门户构建
@@ -138,13 +140,21 @@ python scripts/build_pages.py    # 读取 catalog 与 pages/ 模板,生成 pages
 | 产物 | 来源 | 说明 |
 |:---:|:---:|:---|
 | `pages/dist/index.html` 等模板文件 | `pages/` | 平铺复制,清单见脚本 `TEMPLATE_FILES` 常量 |
-| `pages/dist/catalog-data.js` | `catalog/` | 由脚本生成的前端数据文件,含 catalog 数据与构建信息 |
+| `pages/dist/catalog-data-<后缀>.js` | `catalog/` | 由脚本生成的前端数据文件,含 catalog 数据与构建信息 |
 | `pages/dist/files/` | `dist/` | 媒体按原层级复制,供前端以相对路径 `./files/` 引用 |
 
-- 构建时间取 dist 目录树中最新的文件修改时间(本地时区 `yyyy-MM-dd HH:mm:ss+HH:mm`),同样输入重复运行产物一致
+- 构建时间取 dist 目录树中最新的文件修改时间,换算为固定的中国标准时间(UTC+8)的 `yyyy-MM-dd HH:mm:ss+HH:mm`;不取运行机器的本地时区,因此本地与 GitHub Actions 上同样输入重复运行产物一致
 - 媒体 URL 的中文百分号编码由前端 `main.js` 运行时完成,数据文件保存原始文件名
-- 脚本只做覆盖写与新增写,不删除产物旧文件;dist 中删除素材后本地重建会留残留,脚本会列出提醒手动清理(GitHub Actions 全新检出环境无此问题)
 - 当 main 分支的 dist 目录有 push 时,入口工作流会在生成 catalog 之后自动调用本脚本并把 `pages/dist/` 部署到 GitHub Pages
+
+### 产物文件名与防缓存
+
+`main.css`、`main.js`、`catalog-data.js` 三个文件每次构建都会在文件名主体与扩展名之间插入 8 位随机后缀(字符集 `[0-9a-zA-Z]`),例如 `main-0daJbnAW.js`;`index.html` 中对这三个文件的引用会被同步改写为新文件名。这样每次构建的产物都是全新的 URL,部署后浏览器无法命中旧缓存,会强制拉取最新内容。
+
+- 后缀在**同一次构建内保持一致**(三个文件共用同一个后缀),因此单次构建的产物是一套完整可对应的文件名;跨构建后缀不同,单次构建内部不会出现混搭
+- 后缀只在**文件名层面**,不改动 `index.html` 之外的引用位置;`files/` 下的媒体文件名保持原样不受影响(媒体靠 URL 本身区分,且体积大不重复拉取)
+- 脚本会顺带清理 `pages/dist/` 根目录下由历史构建留下的同类文件:既包括带其他后缀的旧 `main-<后缀>.css` / `main-<后缀>.js` / `catalog-data-<后缀>.js`,也包括未加后缀的历史产物 `main.css` / `main.js` / `catalog-data.js`,避免产物根随构建次数累积
+- 其他模板文件(`index.html`、`favicon.png`、`styles.css` 等)与 `files/` 目录不做改名也不清理,保持覆盖写
 
 ## 输出规格
 

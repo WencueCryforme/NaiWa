@@ -140,6 +140,25 @@ def catalog_file_name(type_name: str) -> str:
     return f"{CATALOG_FILE_PREFIX}{type_name}{CATALOG_FILE_SUFFIX}"
 
 
+def find_stale_catalogs(catalog_dir: str, types: list[str]) -> list[str]:
+    """列出 catalog_dir 下已不再对应任何类型的过期 catalog 文件
+
+    类型可能被更名或删除, 此时上一次运行遗留的 catalog.<旧类型>.json 不会被覆盖,
+    会被 build_pages.py 之外的读者误当作现存类型。此处按本次实际生成的类型集合反查,
+    只清理符合 catalog.<类型>.json 命名规则的文件, 不触碰其他文件。
+    """
+    if not os.path.isdir(catalog_dir):
+        return []
+    expected = {catalog_file_name(name) for name in types}
+    stale: list[str] = []
+    for name in sorted(os.listdir(catalog_dir)):
+        if not name.startswith(CATALOG_FILE_PREFIX) or not name.endswith(CATALOG_FILE_SUFFIX):
+            continue
+        if name not in expected:
+            stale.append(relative(os.path.join(catalog_dir, name)))
+    return stale
+
+
 def read_manifest(
     dist_dir: str, manifest_root: str, directory: str, missing: list[str]
 ) -> dict:
@@ -241,6 +260,16 @@ def main(argv: list[str] | None = None) -> int:
             f"错误:有 {len(missing)} 个 manifest 缺失,请先运行 python scripts/gen_manifest.py\n"
         )
         return 2
+
+    # 清理已不再对应任何类型的过期 catalog, 避免类型更名后留下空壳
+    stale = find_stale_catalogs(catalog_dir, types)
+    for path in stale:
+        os.remove(resolve(path))
+    if stale:
+        print(f"清理:删除 {len(stale)} 个已失效的 catalog")
+        for path in stale:
+            print(f"  {path}")
+
     print(f"完成:类型 {len(types)} 个,catalog {len(written)} 个。")
     return 0
 

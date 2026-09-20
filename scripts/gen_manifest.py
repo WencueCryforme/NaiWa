@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 
 try:
@@ -224,6 +225,55 @@ def find_stale_manifests(dist_dir: str) -> list[str]:
     return sorted(stale)
 
 
+def find_orphan_manifests(dist_dir: str, manifest_root: str) -> list[str]:
+    """列出 manifest_root 下已从 dist 中消失的镜像目录
+
+    本脚本只写不删,而 dist 下的目录可能被更名(例如 audio 改为 sound)或整体删除。
+    这类目录下的旧 manifest 不会被覆盖, 会被 gen_catalog.py 误当作现存目录,
+    产出内容为空或过时的 catalog. 此处不假定 dist 的层级深度, 而是遍历镜像根下
+    的每一个目录, 按同名相对路径到 dist 反查其是否存在, 不存在即为孤儿。
+
+    返回镜像根下应当删除的最浅层目录(一旦某目录判定为孤儿, 其子目录不再重复列出)。
+    """
+    if not os.path.isdir(manifest_root):
+        return []
+    orphans: list[str] = []
+
+    def walk(current: str) -> None:
+        for name in sorted(os.listdir(current)):
+            path = os.path.join(current, name)
+            if not os.path.isdir(path):
+                continue
+            relative_path = os.path.relpath(path, manifest_root)
+            if not os.path.isdir(os.path.join(dist_dir, relative_path)):
+                # 该层在 dist 中不存在, 整棵子树都是孤儿, 记录后停止下探
+                orphans.append(relative(path))
+                continue
+            walk(path)
+
+    walk(manifest_root)
+    return orphans
+
+
+def remove_orphan_manifests(manifest_root: str, orphans: list[str]) -> None:
+    """删除列出的孤儿目录, 并逐级向上清理因此变空的父目录
+
+    孤儿可能位于任意深度(合集被移除时只删到该合集目录, 类型目录会变空),
+    因此删除后自下而上检查父目录, 空则一并删除, 直到镜像根为止。
+    """
+    root = resolve(manifest_root)
+    for path in orphans:
+        resolved = resolve(path)
+        shutil.rmtree(resolved, ignore_errors=True)
+        # 自下而上清理空父目录, 但不动镜像根自身
+        parent = os.path.dirname(resolved)
+        while os.path.abspath(parent) != os.path.abspath(root) and os.path.isdir(parent):
+            if os.listdir(parent):
+                break
+            shutil.rmtree(parent, ignore_errors=True)
+            parent = os.path.dirname(parent)
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     """构建命令行参数解析器,所有参数均带默认值"""
     parser = argparse.ArgumentParser(
@@ -284,6 +334,14 @@ def main(argv: list[str] | None = None) -> int:
     for path, size in written:
         print(f"[写出] {path} ({size} 字节)")
     print(f"完成:类型 {len(types)} 个,合集 {album_count} 个,manifest 共 {len(written)} 个。")
+
+    # 清理已被更名或删除的类型/合集遗留的孤儿 manifest, 避免被 gen_catalog.py 误枚举
+    orphans = find_orphan_manifests(dist_dir, manifest_root)
+    if orphans:
+        remove_orphan_manifests(manifest_root, orphans)
+        print(f"清理:删除 {len(orphans)} 个已失效的 manifest 目录")
+        for path in orphans:
+            print(f"  {path}")
 
     stale = find_stale_manifests(dist_dir)
     if stale:
