@@ -1,6 +1,7 @@
 # Agent Runtime
 AGENTS.md
 .workbuddy/
+.workbuddy-ai/
 
 # data file
 raw/

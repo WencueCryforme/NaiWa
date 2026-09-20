@@ -30,6 +30,9 @@
   /* 无限滚动触发提前量: 加载哨兵进入视口下方该距离内即加载下一页 */
   const SCROLL_MARGIN = '400px';
 
+  /* 卡片媒体懒加载触发提前量: 媒体元素进入视口下方该距离内才开始请求 */
+  const LAZY_MARGIN = '200px';
+
   /* 同一媒体重复打开全屏时的浏览上报冷却期(毫秒), 冷却期内不重复计数 */
   const VIEW_COOLDOWN = 30000;
 
@@ -344,51 +347,251 @@
     });
   }
 
-  /* ---------- 媒体卡片 ---------- */
-  function createMediaCard(item, opts) {
-    opts = opts || {};
-    const card = document.createElement('div');
-    card.className = 'media-card';
-    card.dataset.key = item.key;
+  /* ---------- 媒体卡片 ----------
+     采用实例化卡片(MediaCard)而非纯函数构建, 原因:
+     - 卡片需要持有自身媒体元素与加载观察者, 视图切换后复用实例可避免重复请求与重复解码
+     - 媒体失败时需要能禁用该卡片, 而不是留下永久裂图
+     实例登记在 cardInstances 中, 以媒体键为索引 */
 
-    const wrap = document.createElement('div');
-    wrap.className = 'media-thumb-wrap';
-    const kind = mediaTypeOf(item);
-    if (kind === 'video') {
-      const video = document.createElement('video');
-      video.className = 'media-thumb media-video';
-      video.preload = 'metadata';
-      video.playsInline = true;
-      video.muted = true;
-      video.src = mediaUrl(item);
-      video.addEventListener('error', () => { wrap.classList.add('thumb-failed'); });
-      wrap.appendChild(video);
-    } else if (kind === 'audio') {
-      wrap.classList.add('media-audio-wrap');
-      const icon = document.createElement('div');
-      icon.className = 'media-audio-icon';
-      icon.innerHTML = '<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-3v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="15" r="3"/></svg>';
-      wrap.appendChild(icon);
-      const audio = document.createElement('audio');
-      audio.className = 'media-thumb audio-el';
-      audio.preload = 'metadata';
-      audio.src = mediaUrl(item);
-      audio.addEventListener('error', () => { wrap.classList.add('thumb-failed'); });
-      wrap.appendChild(audio);
-    } else {
-      const img = document.createElement('img');
-      img.className = 'media-thumb';
-      img.loading = 'lazy';
-      img.alt = item.file;
-      img.src = mediaUrl(item);
-      /* 素材缺失或读取失败时给出可见占位, 避免留下浏览器默认的裂图 */
-      img.addEventListener('error', () => {
-        wrap.classList.add('thumb-failed');
-        img.removeAttribute('src');
+  const cardInstances = new Map();
+
+  /* 时长格式化: 秒 -> m:ss, 用于卡片控制栏与全屏播放器 */
+  function formatTime(sec) {
+    if (!isFinite(sec) || sec < 0) sec = 0;
+    const total = Math.floor(sec);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return m + ':' + (s < 10 ? '0' + s : s);
+  }
+
+  class MediaCard {
+    constructor(item, opts) {
+      opts = opts || {};
+      this.item = item;
+      this.kind = mediaTypeOf(item);
+      this.observer = null;
+      this.playerBar = null;
+      this.playOverlay = null;
+      this.failed = false;
+
+      const card = document.createElement('div');
+      card.className = 'media-card';
+      card.dataset.key = item.key;
+
+      /* 媒体区域: 懒加载与播放控件的挂载点 */
+      const wrap = document.createElement('div');
+      wrap.className = 'media-thumb-wrap';
+      wrap.title = item.file;
+      this.wrap = wrap;
+
+      const media = this.buildMedia();
+      this.media = media;
+      wrap.appendChild(media);
+
+      if (this.kind === 'video' || this.kind === 'audio') {
+        this.buildCardPlayer();
+      }
+      buildCardActions(wrap, item);
+
+      wrap.addEventListener('click', (e) => {
+        /* 控制栏与悬浮按钮自行 stopPropagation, 到达这里的点击才进入全屏 */
+        if (this.failed) return;
+        openFullscreen(item);
       });
-      wrap.appendChild(img);
+      card.appendChild(wrap);
+
+      const cap = document.createElement('div');
+      cap.className = 'media-caption';
+      cap.textContent = item.file;
+      card.appendChild(cap);
+
+      if (opts.rank) {
+        const rank = document.createElement('span');
+        rank.className = 'media-rank';
+        rank.textContent = opts.rank;
+        card.appendChild(rank);
+      }
+
+      this.el = card;
+      cardInstances.set(item.key, this);
     }
 
+    /* 按类型创建媒体元素; 图片走 data-src 懒加载, 视频音频走元数据预加载 */
+    buildMedia() {
+      const item = this.item;
+      if (this.kind === 'video' || this.kind === 'audio') {
+        const el = document.createElement(this.kind);
+        el.className = 'media-thumb card-media' + (this.kind === 'video' ? ' media-video' : ' audio-el');
+        el.preload = 'metadata';
+        el.playsInline = true;
+        el.controls = false;
+        if (this.kind === 'video') el.muted = true;
+        el.src = mediaUrl(item);
+        el.addEventListener('loadedmetadata', () => {
+          this.wrap.classList.add('media-loaded');
+          if (this.playerBar) {
+            this.playerBar.time.textContent = '0:00 / ' + formatTime(el.duration);
+          }
+        });
+        el.addEventListener('error', () => this.markFailed());
+        return el;
+      }
+      const img = document.createElement('img');
+      img.className = 'media-thumb card-media loading';
+      img.alt = item.file;
+      img.dataset.src = mediaUrl(item);
+      img.addEventListener('load', () => {
+        img.classList.remove('loading');
+        img.classList.add('loaded');
+        this.wrap.classList.add('media-loaded');
+      });
+      img.addEventListener('error', () => this.markFailed());
+      this.observeLazy(img);
+      return img;
+    }
+
+    /* 图片进入视口附近才真正发起请求, 加载后断开观察, 避免一次性请求全部素材 */
+    observeLazy(img) {
+      if (!('IntersectionObserver' in window)) {
+        img.src = img.dataset.src;
+        return;
+      }
+      this.observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          if (img.dataset.src && !img.src) img.src = img.dataset.src;
+          this.disconnectObserver();
+          break;
+        }
+      }, { rootMargin: LAZY_MARGIN });
+      this.observer.observe(img);
+    }
+
+    disconnectObserver() {
+      if (!this.observer) return;
+      this.observer.disconnect();
+      this.observer = null;
+    }
+
+    /* 卡片内视频音频播放控件: 中心播放遮罩 + 底部播放栏 */
+    buildCardPlayer() {
+      const el = this.media;
+      const overlay = document.createElement('div');
+      overlay.className = 'card-play-overlay';
+      overlay.innerHTML = '&#9654;';
+      overlay.title = '播放';
+      overlay.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (el.paused) el.play(); else el.pause();
+      });
+      this.playOverlay = overlay;
+      this.wrap.appendChild(overlay);
+
+      const bar = document.createElement('div');
+      bar.className = 'card-player-bar';
+      bar.innerHTML =
+        '<button class="card-ctrl-play" title="播放">&#9654;</button>' +
+        '<div class="card-ctrl-progress-wrap"><div class="card-ctrl-buffered"></div><div class="card-ctrl-progress"></div></div>' +
+        '<span class="card-ctrl-time">0:00</span>' +
+        '<button class="card-ctrl-mute" title="静音">&#128266;</button>';
+      bar.addEventListener('click', (e) => e.stopPropagation());
+      this.wrap.appendChild(bar);
+      this.playerBar = {
+        root: bar,
+        time: bar.querySelector('.card-ctrl-time'),
+        progress: bar.querySelector('.card-ctrl-progress'),
+        buffered: bar.querySelector('.card-ctrl-buffered'),
+        play: bar.querySelector('.card-ctrl-play'),
+        mute: bar.querySelector('.card-ctrl-mute')
+      };
+
+      this.playerBar.play.addEventListener('click', () => {
+        if (el.paused) el.play(); else el.pause();
+      });
+      /* 点击进度条按横向位置跳转 */
+      const progressWrap = bar.querySelector('.card-ctrl-progress-wrap');
+      progressWrap.addEventListener('click', (e) => {
+        if (!el.duration) return;
+        const rect = progressWrap.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        el.currentTime = ratio * el.duration;
+      });
+      /* 静音切换仅对视频生效; 音频卡片隐藏该按钮 */
+      this.playerBar.mute.addEventListener('click', () => {
+        el.muted = !el.muted;
+        this.playerBar.mute.innerHTML = el.muted ? '&#128263;' : '&#128266;';
+      });
+      if (this.kind !== 'video') this.playerBar.mute.style.display = 'none';
+
+      el.addEventListener('play', () => {
+        overlay.style.display = 'none';
+        bar.classList.add('visible');
+        this.playerBar.play.innerHTML = '&#10074;&#10074;';
+      });
+      el.addEventListener('pause', () => {
+        if (el.seeking) return;
+        overlay.style.display = '';
+        bar.classList.remove('visible');
+        this.playerBar.play.innerHTML = '&#9654;';
+      });
+      el.addEventListener('ended', () => {
+        overlay.style.display = '';
+        bar.classList.remove('visible');
+        this.playerBar.play.innerHTML = '&#9654;';
+        this.playerBar.progress.style.width = '0%';
+        this.playerBar.time.textContent = '0:00 / ' + formatTime(el.duration);
+      });
+      el.addEventListener('timeupdate', () => {
+        if (!el.duration) return;
+        this.playerBar.progress.style.width = (el.currentTime / el.duration * 100) + '%';
+        this.playerBar.time.textContent = formatTime(el.currentTime) + ' / ' + formatTime(el.duration);
+      });
+      el.addEventListener('progress', () => {
+        if (el.buffered.length > 0 && el.duration) {
+          this.playerBar.buffered.style.width =
+            (el.buffered.end(el.buffered.length - 1) / el.duration * 100) + '%';
+        }
+      });
+    }
+
+    /* 媒体加载失败: 给出可见占位并禁用卡片交互, 避免误点进入空全屏 */
+    markFailed() {
+      this.failed = true;
+      this.wrap.classList.add('thumb-failed');
+      this.el.classList.add('card-disabled');
+      this.disconnectObserver();
+      /* 停止音频视频的在途加载, 释放网络与解码资源 */
+      if (this.media && (this.kind === 'video' || this.kind === 'audio')) {
+        this.media.pause();
+        this.media.removeAttribute('src');
+        this.media.load();
+      }
+      /* 图片失败仅移除 src, 不重新赋回 data-src, 避免触发无限重试 */
+      if (this.media && this.kind === 'image') this.media.removeAttribute('src');
+    }
+
+    /* 视图复用时的状态同步: 懒加载图片在再次进入视图时立即补齐 */
+    syncState() {
+      const el = this.media;
+      if (el && el.tagName === 'IMG' && !el.src && el.dataset.src) {
+        el.src = el.dataset.src;
+        this.disconnectObserver();
+      }
+    }
+
+    destroy() {
+      this.disconnectObserver();
+      if (this.media && (this.kind === 'video' || this.kind === 'audio')) {
+        this.media.pause();
+        this.media.removeAttribute('src');
+      }
+      this.el.remove();
+      cardInstances.delete(this.item.key);
+    }
+  }
+
+  /* 卡片悬浮操作按钮(收藏/分享), 与媒体区域解耦, 便于复用 */
+  function buildCardActions(wrap, item) {
     const fav = document.createElement('button');
     fav.className = 'media-fav' + (favSet.has(item.key) ? ' on' : '');
     fav.innerHTML = '&#9733;';
@@ -411,22 +614,26 @@
       copyShareLink(item);
     });
     wrap.appendChild(share);
+  }
 
-    wrap.addEventListener('click', () => openFullscreen(item));
-    card.appendChild(wrap);
-
-    const cap = document.createElement('div');
-    cap.className = 'media-caption';
-    cap.textContent = item.file;
-    card.appendChild(cap);
-
-    if (opts.rank) {
-      const rank = document.createElement('span');
-      rank.className = 'media-rank';
-      rank.textContent = opts.rank;
-      card.appendChild(rank);
+  /* 创建或复用卡片: 已登记且仍在 DOM 中的实例直接返回, 否则新建 */
+  function createMediaCard(item, opts) {
+    const existing = cardInstances.get(item.key);
+    if (existing && existing.el.isConnected) {
+      existing.syncState();
+      return existing.el;
     }
-    return card;
+    return new MediaCard(item, opts).el;
+  }
+
+  /* 清空一个网格并销毁其下全部卡片实例, 释放播放中的媒体与未触发的懒加载观察者 */
+  function clearGrid(grid) {
+    if (!grid) return;
+    grid.querySelectorAll('.media-card').forEach((el) => {
+      const inst = cardInstances.get(el.dataset.key);
+      if (inst && inst.el === el) inst.destroy();
+    });
+    grid.innerHTML = '';
   }
 
   /* ---------- 首页视图 ---------- */
@@ -468,7 +675,7 @@
     albumItems.length = 0;
     albumItems.push.apply(albumItems, albumItemsOf(typeName, albumName));
     albumPage = 0;
-    dom.albumGrid.innerHTML = '';
+    clearGrid(dom.albumGrid);
     dom.albumEmpty.hidden = true;
     dom.albumNoMore.hidden = true;
     dom.crumbType.textContent = typeName;
@@ -512,7 +719,7 @@
     if (currentView === 'favorites') renderFavorites();
   }
   function renderFavorites() {
-    dom.favoritesGrid.innerHTML = '';
+    clearGrid(dom.favoritesGrid);
     const items = favorites.map(itemByKey).filter(Boolean);
     dom.favoritesEmpty.hidden = items.length > 0;
     const clearBar = document.getElementById('favoritesBar');
@@ -567,7 +774,7 @@
 
   /* ---------- 热门视图(依赖后端, 禁用时降级) ---------- */
   function renderHot() {
-    dom.hotGrid.innerHTML = '';
+    clearGrid(dom.hotGrid);
     dom.hotNoMore.hidden = true;
     if (!backendOn) {
       dom.hotEmpty.hidden = false;
@@ -685,6 +892,11 @@
   }
   function openFullscreen(item) {
     resetFsTransform();
+    /* 进入全屏前停止卡片内正在播放的媒体, 避免与全屏播放器同时出声 */
+    const card = cardInstances.get(item.key);
+    if (card && card.media && (card.kind === 'video' || card.kind === 'audio')) {
+      card.media.pause();
+    }
     dom.fullscreenMedia.innerHTML = '';
     const kind = mediaTypeOf(item);
     let el;
@@ -692,6 +904,7 @@
       el = document.createElement('video');
       el.className = 'fullscreen-media-el';
       el.controls = true;
+      el.playsInline = true;
       el.src = mediaUrl(item);
     } else if (kind === 'audio') {
       el = document.createElement('audio');
@@ -939,7 +1152,7 @@
     fragments.push(repoSpan);
 
     fragments.forEach((frag, i) => {
-      if (i > 0) dom.siteFooter.appendChild(document.createTextNode(' | '));
+      if (i > 0) dom.siteFooter.appendChild(document.createTextNode(' \u00b7 '));
       dom.siteFooter.appendChild(frag);
     });
   }

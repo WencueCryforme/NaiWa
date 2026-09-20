@@ -249,6 +249,7 @@ img { display: block; }
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background-color 0.2s;
 }
 .media-thumb-wrap.ratio-original { aspect-ratio: auto; }
 .media-thumb {
@@ -258,6 +259,26 @@ img { display: block; }
   height: auto;
 }
 .media-thumb-wrap.ratio-original .media-thumb { max-height: 420px; }
+
+/* 图片懒加载: 未就绪时透明, 加载完成后淡入, 避免半成品一闪而过 */
+.card-media.loading { opacity: 0; }
+.card-media.loaded { opacity: 1; transition: opacity 0.35s ease; }
+
+/* 骨架屏: 媒体尚未就绪时以流光占位, 替代空白区域 */
+.media-thumb-wrap:not(.media-loaded):not(.thumb-failed)::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--bg-soft) 25%, var(--panel) 50%, var(--bg-soft) 75%);
+  background-size: 200% 100%;
+  animation: cardShimmer 1.5s ease-in-out infinite;
+  z-index: 0;
+}
+@keyframes cardShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 .media-video {
   width: 100%;
   height: 100%;
@@ -265,23 +286,130 @@ img { display: block; }
   display: block;
   background: #000;
 }
-.media-audio-wrap {
+/* 音频卡片以音符底色承载播放控件, 音频元素本身不占版面 */
+.audio-el {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+.media-thumb-wrap:has(.audio-el) { background: var(--accent-soft); }
+.media-thumb-wrap:has(.audio-el)::after {
+  content: '\266B';
+  position: absolute;
+  font-size: 44px;
+  color: var(--accent);
+  opacity: 0.45;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* 视频音频卡片的中心播放遮罩 */
+.card-play-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 52px;
+  height: 52px;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 20px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 3;
+  transition: background 0.15s, transform 0.15s;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
-.media-audio-icon {
-  color: var(--text-dim);
-  opacity: 0.6;
+.card-play-overlay:hover {
+  background: rgba(0, 0, 0, 0.65);
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+/* 视频音频卡片的底部播放控制栏, 悬停或播放中显示 */
+.card-player-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+  opacity: 0;
+  transition: opacity 0.15s;
   pointer-events: none;
 }
-.audio-el {
-  position: absolute;
-  left: -9999px;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
+.media-thumb-wrap:hover .card-player-bar,
+.card-player-bar.visible { opacity: 1; pointer-events: auto; }
+.card-ctrl-play,
+.card-ctrl-mute {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #fff;
+  background: none;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 4px;
+  transition: background 0.15s;
 }
+.card-ctrl-play:hover,
+.card-ctrl-mute:hover { background: rgba(255, 255, 255, 0.15); }
+.card-ctrl-progress-wrap {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 2px;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: height 0.15s;
+}
+.card-ctrl-progress-wrap:hover { height: 6px; }
+.card-ctrl-buffered {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.card-ctrl-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 1;
+}
+.card-ctrl-time {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  min-width: 58px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
 .media-fav {
   position: absolute;
   top: 8px;
@@ -297,6 +425,7 @@ img { display: block; }
   align-items: center;
   justify-content: center;
   transition: transform 0.15s;
+  z-index: 5;
 }
 .media-fav:hover { transform: scale(1.15); }
 .media-fav.on { color: #f0a020; }
@@ -313,6 +442,7 @@ img { display: block; }
   align-items: center;
   justify-content: center;
   transition: transform 0.15s, color 0.15s;
+  z-index: 5;
 }
 .media-share:hover { transform: scale(1.15); color: var(--accent); }
 .media-share svg { width: 16px; height: 16px; }
@@ -325,13 +455,24 @@ img { display: block; }
   text-overflow: ellipsis;
   text-align: center;
 }
-/* 素材缺失或读取失败时的占位提示 */
+/* 素材缺失或读取失败时的占位提示, 同时禁用卡片交互 */
 .media-thumb-wrap.thumb-failed .media-thumb { display: none; }
-.media-thumb-wrap.thumb-failed::after {
+.media-thumb-wrap.thumb-failed::before {
   content: '素材加载失败';
+  position: static;
+  inset: auto;
+  background: none;
+  animation: none;
   color: var(--text-dim);
   font-size: 13px;
 }
+/* 失败态下隐藏音频音符标记, 避免与失败提示重叠 */
+.media-thumb-wrap.thumb-failed:has(.audio-el) { background: var(--bg-soft); }
+.media-thumb-wrap.thumb-failed:has(.audio-el)::after { content: none; }
+.media-card.card-disabled { cursor: default; }
+.media-card.card-disabled .media-thumb-wrap { cursor: default; }
+.media-card.card-disabled .card-play-overlay,
+.media-card.card-disabled .card-player-bar { display: none; }
 
 /* ---------- 收藏视图操作栏 ---------- */
 .favorites-bar {
@@ -642,4 +783,11 @@ img { display: block; }
   .album-nav { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
   .notice-bar { margin: 8px 10px 0; }
   .crumb-bar { padding: 8px 12px 0; }
+  .card-play-overlay { width: 44px; height: 44px; font-size: 17px; }
+  .card-player-bar { gap: 4px; padding: 4px 6px; }
+  .card-ctrl-time { font-size: 10px; min-width: 46px; }
+  .card-ctrl-progress-wrap { height: 3px; }
+}
+@media (max-width: 480px) {
+  .card-ctrl-time { min-width: 40px; }
 }
