@@ -141,11 +141,29 @@ python scripts/build_pages.py    # 读取 catalog 与 pages/ 模板,生成 pages
 |:---:|:---:|:---|
 | `pages/dist/index.html` 等模板文件 | `pages/` | 平铺复制,清单见脚本 `TEMPLATE_FILES` 常量 |
 | `pages/dist/catalog-data-<后缀>.js` | `catalog/` | 由脚本生成的前端数据文件,含 catalog 数据与构建信息 |
-| `pages/dist/files/` | `dist/` | 媒体按原层级复制,供前端以相对路径 `./files/` 引用 |
+| `pages/dist/files/` | `dist/` | 媒体按原层级复制,供前端以路径 `/files/` 引用 |
 
 - 构建时间取 dist 目录树中最新的文件修改时间,换算为固定的中国标准时间(UTC+8)的 `yyyy-MM-dd HH:mm:ss+HH:mm`;不取运行机器的本地时区,因此本地与 GitHub Actions 上同样输入重复运行产物一致
 - 媒体 URL 的中文百分号编码由前端 `main.js` 运行时完成,数据文件保存原始文件名
 - 当 main 分支的 dist 目录有 push 时,入口工作流会在生成 catalog 之后自动调用本脚本并把 `pages/dist/` 部署到 GitHub Pages
+
+### 搜索引擎优化资产
+
+门户是客户端渲染的单页应用,初始 HTML 只有一个空容器。不保证执行 JavaScript 的爬虫(含多数 AI 检索爬虫)因此看不到任何素材名、合集名与内容链接。本脚本把全部内容在构建期落进 HTML,产出以下资产:
+
+| 产物 | 说明 |
+|:---:|:---|
+| `pages/dist/robots.txt` | 允许全部爬虫抓取,并以绝对地址声明 sitemap 位置 |
+| `pages/dist/sitemap.xml` | 覆盖首页、类型索引页、合集页与全部媒体直链,每条带 `lastmod` |
+| `pages/dist/<类型>/index.html` | 类型索引页,列出该类型全部合集与资源数 |
+| `pages/dist/<类型>/<合集>/index.html` | 合集预渲染页,内含 h1、带 `alt` 的素材缩略图、媒体直链、同类型其他合集的真实 `a` 标签内链与面包屑 |
+
+- `index.html` 由构建脚本注入 canonical、Open Graph、Twitter 卡片、`WebSite` 与 `CollectionPage` 结构化数据、站点级 `h1`,以及一份列出全部类型/合集/素材的可抓取清单
+- 结构化数据统一使用 JSON-LD,覆盖 `WebSite`、`CollectionPage`、`BreadcrumbList`、`ImageObject` 与 `MediaObject`
+- **站内路径一律使用站点根绝对路径**:预渲染页位于 `<类型>/<合集>/` 这类深层目录,相对路径会按文档 URL 的目录解析而指向不存在的层级,因此页内链接与图片 `src` 统一写成以 `/` 开头、并带部署子路径前缀 `SITE_PATH_PREFIX`(项目站点为 `/NaiWa/`)的形式
+- **canonical 与 sitemap 的集合类 URL 一律带结尾斜杠**:其磁盘形态是 `<路径>/index.html`,不带斜杠的地址会被 Web 服务器 301 跳到带斜杠的版本,`canonical` 与 `loc` 都不应指向跳转前地址
+- 预渲染页**不引入**门户的 `main.css` 与 `main.js`:二者依赖完整门户 DOM(视图容器、设置面板、全屏模态等),在结构精简的预渲染页上会因取不到元素而中断脚本执行;预渲染页只引专用样式 `pages/seo.css`
+- 站点基址、部署子路径、站点名称与描述集中在脚本常量 `SITE_BASE_URL`、`SITE_PATH_PREFIX`、`SITE_NAME`、`SITE_DESCRIPTION`、`SITE_KEYWORDS`;切换自建域名时改这几处即可
 
 ### 产物文件名与防缓存
 

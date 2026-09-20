@@ -7,6 +7,19 @@
 - 把 catalog 数据与构建信息写为 `pages/dist/catalog-data.js`,由前端运行时读取
 - 把 `dist/` 媒体按原层级复制到 `pages/dist/files/`(方案甲: 站点根 = pages/dist,
   媒体位于站点根的 files/ 子目录,与模板 main.js 的 DIST_SOURCE = "./files/" 配套)
+- 依据 catalog 为每个「类型/合集」生成一份预渲染静态页,并生成 robots.txt 与 sitemap.xml
+
+搜索引擎优化说明:门户是客户端渲染的单页应用,初始 HTML 只有一个空容器,不保证执行
+JavaScript 的爬虫(含多数 AI 检索爬虫)看不到任何素材名、合集名与内容链接。因此本脚本
+把全部内容在构建期落进 HTML:
+
+- `pages/dist/<类型>/<合集>/index.html` 是预渲染副本,内含 h1 标题、带 alt 的素材缩略图、
+  指向媒体的直链、指向同类型其他合集的真实 a 标签内链、面包屑与集合级 JSON-LD
+- `pages/dist/index.html` 由模板改写而来,注入 canonical、Open Graph、Twitter 卡片、
+  首页级 JSON-LD、h1 与一份列出全部类型/合集/素材的语义化清单(noscript 与页脚目录区)
+- `pages/dist/robots.txt` 与 `pages/dist/sitemap.xml` 覆盖首页、集合页与全部素材直链
+- 预渲染页面向用户复用站点模板的 main.css 与 main.js(以根路径绝对地址引用,支持站点
+  任意子路径挂载),页脚横幅提示可回到交互式门户;爬虫与无 JS 环境看到的是完整内容
 
 防缓存说明:main.css、main.js、catalog-data.js 每次构建都会在扩展名之前插入一个
 8 位随机后缀(字符集 [0-9a-zA-Z],例如 main-0daJbnAW.js),并同步改写产物 index.html
@@ -39,12 +52,14 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import random
 import shutil
 import sys
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +75,7 @@ DEFAULT_CATALOG_DIR = "catalog"
 MEDIA_OUTPUT_NAME = "files"
 
 # 随模板复制进产物根的文件清单(数据文件 catalog-data.js 由本脚本生成,不在其中)
-TEMPLATE_FILES = ["index.html", "main.css", "main.js", "favicon.png"]
+TEMPLATE_FILES = ["index.html", "main.css", "main.js", "seo.css", "favicon.png"]
 
 # 需要加随机后缀以强制刷新浏览器缓存的文件清单(相对产物根的文件名)
 # 每次构建都会为这些文件重新生成随机后缀, 后缀插入在扩展名之前, 例如 main-0daJbnAW.js;
@@ -76,6 +91,65 @@ CATALOG_DATA_NAME = "catalog-data.js"
 
 # 站点仓库地址,写入构建信息供关于页展示
 SITE_BUILD_REPO = "https://github.com/WencueCryforme/NaiWa"
+
+# 站点线上基址(GitHub Pages 默认域名), 用于生成 canonical、Open Graph、sitemap 等需要
+# 绝对 URL 的字段; 结尾不带斜杠, 子路径部署时把子路径一并写入(如 ".../NaiWa")
+SITE_BASE_URL = "https://wencuecryforme.github.io/NaiWa"
+
+# 站点在域名下的部署子路径(项目站点的站点根不在域名根时非空), 结尾带斜杠;
+# 预渲染页位于深层目录, 页内一律使用以它开头的站点根绝对路径, 避免相对路径解析错层
+SITE_PATH_PREFIX = "/NaiWa/"
+
+# 站点名称与默认描述, 用于 title 后缀、Open Graph 与 JSON-LD
+SITE_NAME = "奶蛙宇宙"
+SITE_DESCRIPTION = (
+    "奶蛙表情包宇宙在线版, 收录奶蛙、小奶蛙系列表情包动图与静态图, 以及奶蛙爆笑音视频, "
+    "按类型与合集在线浏览、支持收藏与热门排序, 全部素材可免费下载。"
+)
+
+# 搜索引擎爬虫与普通访客共用的站点级关键字
+SITE_KEYWORDS = (
+    "奶蛙,奶蛙表情包,奶蛙宇宙,小奶蛙,奶蛙动图,奶蛙gif,表情包大全,"
+    "聊天表情包,奶蛙爆笑视频,表情包下载,NaiWa"
+)
+
+# 站点主题色, 用于 Open Graph 与 theme-color
+SITE_THEME_COLOR = "#3aa675"
+
+# 类型目录名到中文显示名与描述的映射; 未登记的目录名回退为目录名本身
+TYPE_META = {
+    "meme": {
+        "label": "表情包",
+        "description": "奶蛙系列表情包动图与静态图, 覆盖爆笑、日常、对称、双枪射手等主题合集。",
+    },
+    "sound": {
+        "label": "音频",
+        "description": "奶蛙系列音频素材, 包含爆笑原声与专属背景音乐。",
+    },
+    "video": {
+        "label": "视频",
+        "description": "奶蛙系列短视频素材, 包含爆笑、校园生活与神圣合集。",
+    },
+}
+
+# 媒体扩展名到中文类型名的映射, 用于预渲染页与结构化数据中的描述文案
+MEDIA_KIND_LABEL = {
+    ".jpg": "静态图", ".jpeg": "静态图", ".png": "静态图", ".webp": "静态图",
+    ".gif": "动图",
+    ".mp4": "视频", ".webm": "视频", ".mov": "视频", ".mkv": "视频",
+    ".mp3": "音频", ".wav": "音频", ".flac": "音频", ".aac": "音频",
+    ".ogg": "音频", ".m4a": "音频",
+}
+
+# SEO 资产文件名
+ROBOTS_NAME = "robots.txt"
+SITEMAP_NAME = "sitemap.xml"
+
+# 预渲染页中列出的单页素材上限: 超出部分以纯文字清单继续完整列出, 保证内容不漏
+PRERENDER_MEDIA_LIMIT = 48
+
+# 站点级 Open Graph 图片与站点图标
+OG_IMAGE_NAME = "favicon.png"
 
 # 构建信息输出格式: 固定时区 yyyy-MM-dd HH:mm:ss+HH:mm
 BUILD_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -218,6 +292,716 @@ def load_catalog_data(catalog_dir: str) -> dict:
     return {"types": merged}
 
 
+# ---------------------------------------------------------------------------
+# 搜索引擎优化(SEO)资产: 预渲染页、robots.txt、sitemap.xml 与元数据注入
+# ---------------------------------------------------------------------------
+
+
+def site_base(extra: str = "") -> str:
+    """拼接站点绝对基址, extra 为站点内路径(可带尾斜杠, 决定是否为目录型 URL)
+
+    extra 为空或本身以斜杠结尾时按目录型 URL 拼出结尾斜杠; 否则按文件型 URL 处理。
+    集合类页面的磁盘形态是 `<路径>/index.html`, 对外规范 URL 必须带尾斜杠, 否则该 URL
+    会被 Web 服务器 301 跳到带斜杠的版本, canonical 与 sitemap 的 loc 都不应指向跳转前地址。
+    """
+    base = SITE_BASE_URL.rstrip("/")
+    if not extra:
+        return base + "/"
+    if extra.endswith("/"):
+        return base + "/" + extra.lstrip("/")
+    return base + "/" + extra.lstrip("/")
+
+
+def type_page_url(type_name: str) -> str:
+    """类型索引页的绝对 URL, 目录型 URL 必须带尾斜杠"""
+    return site_base("%s/" % quote(type_name))
+
+
+def type_label(type_name: str) -> str:
+    """类型目录名对应的中文显示名,未登记的目录名原样返回"""
+    meta = TYPE_META.get(type_name)
+    return meta["label"] if meta else type_name
+
+
+def type_description(type_name: str) -> str:
+    """类型目录名对应的描述文案,未登记的目录名给出通用描述"""
+    meta = TYPE_META.get(type_name)
+    if meta:
+        return meta["description"]
+    return "%s 类型的奶蛙表情包素材合集。" % type_name
+
+
+def media_kind(file_name: str) -> str:
+    """按扩展名给出媒体的中文类型名,用于预渲染页与结构化数据"""
+    ext = os.path.splitext(file_name)[1].lower()
+    return MEDIA_KIND_LABEL.get(ext, "素材")
+
+
+def album_path(type_name: str, album_name: str) -> str:
+    """合集页在站点内的相对路径,统一使用正斜杠并以斜杠结尾"""
+    return "%s/%s/" % (quote(type_name), quote(album_name))
+
+
+def album_href(type_name: str, album_name: str) -> str:
+    """合集页在站点内的站点根绝对路径, 供深层目录页面内链使用"""
+    return SITE_PATH_PREFIX + album_path(type_name, album_name)
+
+
+def type_href(type_name: str) -> str:
+    """类型索引页在站点内的站点根绝对路径"""
+    return SITE_PATH_PREFIX + "%s/" % quote(type_name)
+
+def album_page_url(type_name: str, album_name: str) -> str:
+    """合集页的绝对 URL(作为 canonical 与 sitemap 的 loc), 目录型 URL 必须带尾斜杠"""
+    return site_base(album_path(type_name, album_name))
+
+
+def media_url(key: str) -> str:
+    """媒体键(类型/合集/文件)对应的绝对 URL"""
+    return site_base("%s/%s" % (MEDIA_OUTPUT_NAME, "/".join(quote(p) for p in key.split("/"))))
+
+
+def media_rel_url(key: str) -> str:
+    """媒体键对应的站点根绝对 URL(带部署子路径前缀)
+
+    预渲染页位于 `<类型>/<合集>/` 这类深层目录, 相对路径会按文档 URL 的目录解析而
+    指向不存在的层级, 因此统一以 `/` 开头的站点根绝对路径表达; 站点本身按子路径部署
+    (GitHub Pages 项目站点), 故前缀由 SITE_PATH_PREFIX 提供。
+    """
+    return "%s%s/%s" % (
+        SITE_PATH_PREFIX,
+        MEDIA_OUTPUT_NAME,
+        "/".join(quote(p) for p in key.split("/")),
+    )
+
+
+def item_key(type_name: str, album_name: str, file_name: str) -> str:
+    """媒体键: 类型/合集/文件,与前端 main.js 的键格式一致"""
+    return "%s/%s/%s" % (type_name, album_name, file_name)
+
+
+def find_album(catalog_data: dict, type_name: str, album_name: str) -> dict | None:
+    """在合并后的 catalog 数据中定位某个合集,不存在时返回 None"""
+    for t in catalog_data.get("types", []):
+        if t.get("name") != type_name:
+            continue
+        for album in t.get("albums", []):
+            if album.get("name") == album_name:
+                return album
+    return None
+
+
+def plain_text(text: str) -> str:
+    """把标题类文本中的书名号与引号替换为 空格,便于生成不含标点的描述语"""
+    for ch in "《》\u201c\u201d":
+        text = text.replace(ch, " ")
+    return " ".join(text.split())
+
+
+def json_ld_script(payload: dict) -> str:
+    """把结构化数据渲染为 JSON-LD 的 script 标签,转义 < > & 避免破坏 HTML 解析"""
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    raw = raw.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    return '<script type="application/ld+json">%s</script>' % raw
+
+
+def meta_tag(attr: str, key: str, content: str) -> str:
+    """渲染单个 meta 标签"""
+    return '<meta %s="%s" content="%s">' % (attr, html.escape(key, quote=True), html.escape(content, quote=True))
+
+
+def sanitize_brand(text: str) -> str:
+    """OG 站点名前缀必须用英文括号,避免部分抓取器的解析异常"""
+    return text.replace("(", "\\ue002").replace(")", "\\ue003")
+
+
+def build_breadcrumb_ld(trail: list) -> dict:
+    """由 (名称, 绝对URL) 组成的路径构建 BreadcrumbList 结构化数据"""
+    elements = []
+    for index, (name, url) in enumerate(trail, start=1):
+        elements.append({
+            "@type": "ListItem",
+            "position": index,
+            "name": name,
+            "item": url,
+        })
+    return {"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": elements}
+
+
+def build_catalog_ld(name: str, description: str, url: str, keys: list) -> dict:
+    """构建 CollectionPage 结构化数据, mainEntity 为包含全部媒体的 ItemList"""
+    elements = []
+    for position, key in enumerate(keys, start=1):
+        file_name = key.split("/")[-1]
+        elements.append({
+            "@type": "ListItem",
+            "position": position,
+            "name": os.path.splitext(file_name)[0],
+            "item": {
+                "@type": "CreativeWork",
+                "name": os.path.splitext(file_name)[0],
+                "url": media_url(key),
+                "encodingFormat": os.path.splitext(file_name)[1].lower().lstrip("."),
+            },
+        })
+    return {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": name,
+        "description": description,
+        "url": url,
+        "inLanguage": "zh-CN",
+        "isPartOf": {"@type": "WebSite", "name": SITE_NAME, "url": site_base()},
+        "mainEntity": {"@type": "ItemList", "itemListElement": elements},
+    }
+
+
+def build_media_object_ld(type_name: str, album_name: str, file_name: str) -> dict:
+    """单个媒体的结构化数据: 图片记 ImageObject, 音视频记 MediaObject"""
+    key = item_key(type_name, album_name, file_name)
+    stem = os.path.splitext(file_name)[0]
+    kind = media_kind(file_name)
+    if kind in ("静态图", "动图"):
+        payload = {
+            "@context": "https://schema.org",
+            "@type": "ImageObject",
+            "name": stem,
+            "contentUrl": media_url(key),
+            "caption": stem,
+            "representativeOfPage": False,
+            "isPartOf": {"@type": "CollectionPage", "name": album_name, "url": album_page_url(type_name, album_name)},
+        }
+    else:
+        payload = {
+            "@context": "https://schema.org",
+            "@type": "MediaObject",
+            "name": stem,
+            "contentUrl": media_url(key),
+            "encodingFormat": os.path.splitext(file_name)[1].lower().lstrip("."),
+            "isPartOf": {"@type": "CollectionPage", "name": album_name, "url": album_page_url(type_name, album_name)},
+        }
+    return payload
+
+
+def site_stylesheet_link() -> str:
+    """站点样式表引用: 用根路径绝对地址,兼容站点部署在任意子路径"""
+    return "%s/main.css" % SITE_BASE_URL.rstrip("/")
+
+
+def seo_stylesheet_link() -> str:
+    """预渲染页专用样式表引用: 同样使用根路径绝对地址"""
+    return "%s/seo.css" % SITE_BASE_URL.rstrip("/")
+
+
+def render_album_banner(type_name: str, album_name: str) -> str:
+    """预渲染页顶部的横幅: 说明这是只读内容页并提供回到交互式门户的出口"""
+    return (
+        '<div class="seo-banner">'
+        '<div class="seo-banner-inner">'
+        '<span class="seo-banner-text">合集内容页 · %s / %s</span>'
+        '<a class="seo-banner-link" href="%s">回到奶蛙宇宙门户</a>'
+        "</div>"
+        "</div>"
+    ) % (
+        html.escape(type_label(type_name)),
+        html.escape(album_name),
+        html.escape(site_base(), quote=True),
+    )
+
+
+def render_album_links(catalog_data: dict, type_name: str, current_album: str) -> str:
+    """同类型其他合集的真实 a 标签内链,供爬虫发现与用户跳转"""
+    links = []
+    for t in catalog_data.get("types", []):
+        if t.get("name") != type_name:
+            continue
+        for album in t.get("albums", []):
+            name = album.get("name", "")
+            if not name or name == current_album:
+                continue
+            links.append(
+                '<li><a href="%s">%s</a><span class="seo-count">%d 个资源</span></li>'
+                % (html.escape(album_href(type_name, name), quote=True), html.escape(name),
+                   len(album.get("files", [])))
+            )
+    if not links:
+        return ""
+    return (
+        '<nav class="seo-section" aria-label="同类合集">'
+        "<h2>同类型的其他合集</h2>"
+        '<ul class="seo-link-list">%s</ul>'
+        "</nav>"
+    ) % "".join(links)
+
+
+def render_album_media(key: str, stem: str, kind: str) -> str:
+    """单个媒体的预渲染卡片: 图片直接内联缩略图, 音视频给出带图标的直链"""
+    url = html.escape(media_rel_url(key), quote=True)
+    if kind in ("静态图", "动图"):
+        return (
+            '<figure class="seo-media">'
+            '<a href="%s"><img src="%s" alt="%s" loading="lazy" decoding="async"></a>'
+            '<figcaption><a href="%s">%s</a><span class="seo-kind">%s</span></figcaption>'
+            "</figure>"
+        ) % (url, url, html.escape(stem, quote=True), url, html.escape(stem), kind)
+    return (
+        '<figure class="seo-media seo-media-file">'
+        '<a class="seo-file-link" href="%s"><span class="seo-file-icon">%s</span></a>'
+        '<figcaption><a href="%s">%s</a><span class="seo-kind">%s</span></figcaption>'
+        "</figure>"
+    ) % (url, kind, url, html.escape(stem), kind)
+
+
+def render_album_plain_list(keys: list) -> str:
+    """超出缩略图上限的媒体以纯文字链接清单继续完整列出, 保证内容一条不漏"""
+    if not keys:
+        return ""
+    items = []
+    for key in keys:
+        file_name = key.split("/")[-1]
+        stem = os.path.splitext(file_name)[0]
+        items.append(
+            '<li><a href="%s">%s</a><span class="seo-kind">%s</span></li>'
+            % (html.escape(media_rel_url(key), quote=True), html.escape(stem), media_kind(file_name))
+        )
+    return (
+        '<section class="seo-section">'
+        "<h2>更多素材</h2>"
+        '<ul class="seo-link-list seo-plain-list">%s</ul>'
+        "</section>"
+    ) % "".join(items)
+
+
+def render_album_page(catalog_data: dict, type_name: str, album_name: str, album: dict, build_time: str) -> str:
+    """生成单个合集的预渲染静态页,返回完整 HTML 文本"""
+    files = album.get("files", [])
+    keys = [item_key(type_name, album_name, f) for f in files]
+    label = type_label(type_name)
+    page_url = album_page_url(type_name, album_name)
+    title = "%s表情包合集 - 奶蛙宇宙" % album_name
+    if type_name != "meme":
+        title = "%s%s合集 - 奶蛙宇宙" % (album_name, label)
+    counts = {}
+    for f in files:
+        kind = media_kind(f)
+        counts[kind] = counts.get(kind, 0) + 1
+    composition = ", ".join("%s %d 个" % (k, v) for k, v in counts.items())
+    description = "%s收录 %d 个奶蛙%s素材(%s), 可在线查看与下载。" % (
+        plain_text(album_name), len(files), label, composition,
+    )
+    if len(description) > 150:
+        description = description[:148] + "。"
+    headline = "%s · %s" % (album_name, label)
+
+    thumb_keys = keys[:PRERENDER_MEDIA_LIMIT]
+    rest_keys = keys[PRERENDER_MEDIA_LIMIT:]
+    thumbs = "".join(
+        render_album_media(k, os.path.splitext(k.split("/")[-1])[0], media_kind(k.split("/")[-1]))
+        for k in thumb_keys
+    )
+    plain = render_album_plain_list(rest_keys)
+
+    ld_blocks = [
+        json_ld_script(build_catalog_ld(
+            "%s - %s" % (album_name, SITE_NAME),
+            description,
+            page_url,
+            keys,
+        )),
+        json_ld_script(build_breadcrumb_ld([
+            (SITE_NAME, site_base()),
+            (label, type_page_url(type_name)),
+            (album_name, page_url),
+        ])),
+    ]
+    # 逐条媒体的结构化数据: 节流到缩略图数量, 避免单页 JSON-LD 体积失控
+    for key in thumb_keys:
+        parts = key.split("/")
+        ld_blocks.append(json_ld_script(build_media_object_ld(parts[0], parts[1], parts[2])))
+
+    head = [
+        "<!DOCTYPE html>",
+        '<html lang="zh-CN" data-theme="light">',
+        "<head>",
+        '<meta charset="UTF-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+        "<title>%s</title>" % html.escape(title),
+        meta_tag("name", "description", description),
+        meta_tag("name", "keywords", "%s,%s,%s" % (album_name, SITE_KEYWORDS, label)),
+        meta_tag("name", "theme-color", SITE_THEME_COLOR),
+        meta_tag("name", "author", "WencueCryforme"),
+        meta_tag("name", "robots", "index, follow"),
+        '<link rel="canonical" href="%s">' % html.escape(page_url, quote=True),
+        '<link rel="icon" href="%s" type="image/png">' % html.escape(site_base(OG_IMAGE_NAME), quote=True),
+        # 只引预渲染页专用样式: 门户的 main.css/main.js 依赖完整门户 DOM, 在此不引入
+        '<link rel="stylesheet" href="%s">' % html.escape(seo_stylesheet_link(), quote=True),
+        '<meta property="og:type" content="website">',
+        meta_tag("property", "og:site_name", sanitize_brand(SITE_NAME)),
+        meta_tag("property", "og:title", title),
+        meta_tag("property", "og:description", description),
+        meta_tag("property", "og:url", page_url),
+        meta_tag("property", "og:image", site_base(OG_IMAGE_NAME)),
+        meta_tag("property", "og:locale", "zh_CN"),
+        '<meta name="twitter:card" content="summary">',
+        meta_tag("name", "twitter:title", title),
+        meta_tag("name", "twitter:description", description),
+    ] + ld_blocks + [
+        "</head>",
+        '<body class="seo-page">',
+    ]
+
+    body = [
+        render_album_banner(type_name, album_name),
+        '<main class="seo-wrap">',
+        '<nav class="seo-crumb" aria-label="面包屑">'
+        '<a href="%s">首页</a><span class="seo-sep">/</span>'
+        '<a href="%s">%s</a><span class="seo-sep">/</span>'
+        '<span class="seo-crumb-current">%s</span></nav>' % (
+            html.escape(site_base(), quote=True),
+            html.escape(type_href(type_name), quote=True),
+            html.escape(label),
+            html.escape(album_name),
+        ),
+        '<header class="seo-head">',
+        "<h1>%s</h1>" % html.escape(headline),
+        '<p class="seo-lead">%s</p>' % html.escape(description),
+        "</header>",
+        '<section class="seo-section">',
+        "<h2>合集素材（%d）</h2>" % len(files),
+        '<div class="seo-grid">%s</div>' % thumbs,
+        "</section>",
+        plain,
+        render_album_links(catalog_data, type_name, album_name),
+        '<p class="seo-note">本页为无脚本环境与搜索引擎准备的合集内容页, 交互式浏览请前往 '
+        '<a href="%s">奶蛙宇宙门户</a>。素材更新于 %s。</p>' % (
+            html.escape(site_base(), quote=True), html.escape(build_time),
+        ),
+        "</main>",
+        '<footer class="seo-footer">'
+        '作者 <a href="https://github.com/WencueCryforme" target="_blank" rel="noopener">WencueCryforme</a>'
+        ' · 内容以 <a href="%s" target="_blank" rel="noopener">%s</a> 仓库为准'
+        "</footer>" % (
+            html.escape(SITE_BUILD_REPO, quote=True), html.escape(SITE_BUILD_REPO),
+        ),
+        "</body>",
+        "</html>",
+    ]
+    return "\n".join(head + body) + "\n"
+
+
+def render_type_index_page(catalog_data: dict, type_name: str, build_time: str) -> str:
+    """生成类型索引页(站点根的 <类型>/index.html),列出该类型全部合集"""
+    label = type_label(type_name)
+    description = type_description(type_name)
+    page_url = type_page_url(type_name)
+    title = "%s - %s - 奶蛙宇宙" % (label, "奶蛙系列素材")
+    links = []
+    total = 0
+    for t in catalog_data.get("types", []):
+        if t.get("name") != type_name:
+            continue
+        for album in t.get("albums", []):
+            name = album.get("name", "")
+            if not name:
+                continue
+            count = len(album.get("files", []))
+            total += count
+            links.append(
+                '<li><a href="%s">%s</a><span class="seo-count">%d 个资源</span></li>'
+                % (html.escape(album_href(type_name, name), quote=True), html.escape(name), count)
+            )
+
+    head = [
+        "<!DOCTYPE html>",
+        '<html lang="zh-CN" data-theme="light">',
+        "<head>",
+        '<meta charset="UTF-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+        "<title>%s</title>" % html.escape(title),
+        meta_tag("name", "description", "%s 共 %d 个合集, %d 个素材。" % (description, len(links), total)),
+        meta_tag("name", "keywords", "%s,%s" % (label, SITE_KEYWORDS)),
+        meta_tag("name", "theme-color", SITE_THEME_COLOR),
+        meta_tag("name", "robots", "index, follow"),
+        '<link rel="canonical" href="%s">' % html.escape(page_url, quote=True),
+        '<link rel="icon" href="%s" type="image/png">' % html.escape(site_base(OG_IMAGE_NAME), quote=True),
+        # 只引预渲染页专用样式: 门户的 main.css/main.js 依赖完整门户 DOM, 在此不引入
+        '<link rel="stylesheet" href="%s">' % html.escape(seo_stylesheet_link(), quote=True),
+        '<meta property="og:type" content="website">',
+        meta_tag("property", "og:site_name", sanitize_brand(SITE_NAME)),
+        meta_tag("property", "og:title", title),
+        meta_tag("property", "og:description", description),
+        meta_tag("property", "og:url", page_url),
+        meta_tag("property", "og:image", site_base(OG_IMAGE_NAME)),
+        meta_tag("property", "og:locale", "zh_CN"),
+        json_ld_script({
+            "@context": "https://schema.org",
+            "@type": "CollectionPage",
+            "name": "%s - %s" % (label, SITE_NAME),
+            "description": description,
+            "url": page_url,
+            "inLanguage": "zh-CN",
+            "isPartOf": {"@type": "WebSite", "name": SITE_NAME, "url": site_base()},
+            "mainEntity": {
+                "@type": "ItemList",
+                "numberOfItems": len(links),
+                "itemListElement": [
+                    {
+                        "@type": "ListItem",
+                        "position": index,
+                        "name": album.get("name", ""),
+                        "url": album_page_url(type_name, album.get("name", "")),
+                    }
+                    for index, album in enumerate(
+                        [a for t in catalog_data.get("types", []) if t.get("name") == type_name
+                         for a in t.get("albums", []) if a.get("name")], start=1
+                    )
+                ],
+            },
+        }),
+        json_ld_script(build_breadcrumb_ld([(SITE_NAME, site_base()), (label, page_url)])),
+        "</head>",
+        '<body class="seo-page">',
+    ]
+    body = [
+        '<main class="seo-wrap">',
+        '<nav class="seo-crumb" aria-label="面包屑">'
+        '<a href="%s">首页</a><span class="seo-sep">/</span>'
+        '<span class="seo-crumb-current">%s</span></nav>' % (html.escape(site_base(), quote=True), html.escape(label)),
+        '<header class="seo-head">',
+        "<h1>%s</h1>" % html.escape(label),
+        '<p class="seo-lead">%s</p>' % html.escape(description),
+        "</header>",
+        '<nav class="seo-section" aria-label="合集列表">',
+        "<h2>全部合集（%d）</h2>" % len(links),
+        '<ul class="seo-link-list">%s</ul>' % "".join(links),
+        "</nav>",
+        '<p class="seo-note">本页为搜索引擎与无脚本环境准备的索引页, 交互式浏览请前往 '
+        '<a href="%s">奶蛙宇宙门户</a>。素材更新于 %s。</p>' % (
+            html.escape(site_base(), quote=True), html.escape(build_time),
+        ),
+        "</main>",
+        '<footer class="seo-footer">'
+        '作者 <a href="https://github.com/WencueCryforme" target="_blank" rel="noopener">WencueCryforme</a>'
+        ' · 内容以 <a href="%s" target="_blank" rel="noopener">%s</a> 仓库为准'
+        "</footer>" % (
+            html.escape(SITE_BUILD_REPO, quote=True), html.escape(SITE_BUILD_REPO),
+        ),
+        "</body>",
+        "</html>",
+    ]
+    return "\n".join(head + body) + "\n"
+
+
+def build_site_map_markup(catalog_data: dict) -> str:
+    """站点级语义化清单: 列出全部类型、合集与素材的可抓取链接, 注入 index.html"""
+    parts = []
+    for t in catalog_data.get("types", []):
+        type_name = t.get("name", "")
+        if not type_name:
+            continue
+        label = type_label(type_name)
+        album_items = []
+        for album in t.get("albums", []):
+            album_name = album.get("name", "")
+            if not album_name:
+                continue
+            file_items = []
+            for f in album.get("files", []):
+                stem = os.path.splitext(f)[0]
+                file_items.append(
+                    '<li><a href="%s">%s</a> <span class="seo-kind">%s</span></li>'
+                    % (html.escape(media_rel_url(item_key(type_name, album_name, f)), quote=True),
+                       html.escape(stem), media_kind(f))
+                )
+            album_items.append(
+                '<li><a href="%s">%s</a><span class="seo-count">%d 个资源</span>'
+                '<ul class="seo-file-list">%s</ul></li>'
+                % (html.escape(album_href(type_name, album_name), quote=True),
+                   html.escape(album_name), len(album.get("files", [])), "".join(file_items))
+            )
+        parts.append(
+            '<section class="seo-type-block">'
+            '<h3 id="type-%s">%s</h3>'
+            '<ul class="seo-album-list">%s</ul>'
+            "</section>" % (html.escape(type_name, quote=True), html.escape(label), "".join(album_items))
+        )
+    return "".join(parts)
+
+
+def inject_index_seo(output_dir: str, catalog_data: dict, build_time: str, version: str) -> dict:
+    """把首页级 SEO 内容注入产物 index.html,返回注入项计数"""
+    index_path = os.path.join(output_dir, "index.html")
+    if not os.path.isfile(index_path):
+        print("[缺失] 产物中没有 index.html,跳过 SEO 注入")
+        return {"meta": 0, "list": 0}
+
+    text = read_text(index_path)
+    types = catalog_data.get("types", [])
+    total = sum(len(a.get("files", [])) for t in types for a in t.get("albums", []))
+    album_count = sum(len(t.get("albums", [])) for t in types)
+    type_names = ", ".join(type_label(t.get("name", "")) for t in types if t.get("name"))
+
+    description = SITE_DESCRIPTION
+    if len(description) > 150:
+        description = description[:148] + "。"
+
+    head_blocks = [
+        meta_tag("name", "keywords", SITE_KEYWORDS),
+        meta_tag("name", "author", "WencueCryforme"),
+        meta_tag("name", "robots", "index, follow, max-image-preview:large"),
+        '<link rel="canonical" href="%s">' % html.escape(site_base(), quote=True),
+        '<link rel="icon" href="favicon.png" type="image/png">',
+        '<meta property="og:type" content="website">',
+        meta_tag("property", "og:site_name", sanitize_brand(SITE_NAME)),
+        meta_tag("property", "og:title", "%s - 奶蛙表情包在线浏览与下载" % SITE_NAME),
+        meta_tag("property", "og:description", description),
+        meta_tag("property", "og:url", site_base()),
+        meta_tag("property", "og:image", site_base(OG_IMAGE_NAME)),
+        meta_tag("property", "og:locale", "zh_CN"),
+        '<meta name="twitter:card" content="summary">',
+        meta_tag("name", "twitter:title", "%s - 奶蛙表情包在线浏览与下载" % SITE_NAME),
+        meta_tag("name", "twitter:description", description),
+        '<meta name="twitter:image" content="%s">' % html.escape(site_base(OG_IMAGE_NAME), quote=True),
+        json_ld_script({
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            "name": SITE_NAME,
+            "alternateName": "NaiWa",
+            "url": site_base(),
+            "description": description,
+            "inLanguage": "zh-CN",
+            "keywords": SITE_KEYWORDS,
+            "author": {"@type": "Person", "name": "WencueCryforme", "url": "https://github.com/WencueCryforme"},
+            "license": SITE_BUILD_REPO + "/blob/main/LICENSE",
+            "publisher": {
+                "@type": "Organization",
+                "name": SITE_NAME,
+                "logo": {"@type": "ImageObject", "url": site_base(OG_IMAGE_NAME)},
+            },
+            "potentialAction": {
+                "@type": "ReadAction",
+                "target": {"@type": "EntryPoint", "urlTemplate": site_base()},
+            },
+        }),
+        json_ld_script(build_catalog_ld(
+            "%s素材总览" % SITE_NAME,
+            description,
+            site_base(),
+            [item_key(t.get("name", ""), a.get("name", ""), f)
+             for t in types for a in t.get("albums", []) for f in a.get("files", [])],
+        )),
+    ]
+
+    # 1) 标题与描述按内容规模改写,便于搜索结果呈现覆盖范围
+    text = text.replace(
+        "<title>%s</title>" % SITE_NAME,
+        "<title>%s - 奶蛙表情包大全（%d 个素材 %d 个合集）</title>" % (SITE_NAME, total, album_count),
+        1,
+    )
+    text = text.replace(
+        'content="奶蛙表情包宇宙在线版',
+        'content="%s' % description.replace('"', ""),
+        1,
+    )
+    # 2) 消费模板中的 SEO 占位注释, 避免遗留无用标记
+    text = text.replace("<!-- SEO_HEAD -->", "", 1)
+
+    # 3) 全部 meta 与结构化数据插入到 </head> 之前
+    if "</head>" in text:
+        text = text.replace("</head>", "\n  ".join(head_blocks) + "\n</head>", 1)
+        meta_count = len(head_blocks)
+    else:
+        meta_count = 0
+
+    # 4) 站点地图区替换占位注释,内容为空时给出兜底提示
+    markup = build_site_map_markup(catalog_data)
+    if "<!-- SEO_SITE_MAP -->" in text:
+        if not markup:
+            markup = '<p class="seo-empty">站点素材正在整理中。</p>'
+        text = text.replace("<!-- SEO_SITE_MAP -->", markup, 1)
+        list_count = 1
+    else:
+        list_count = 0
+
+    write_text(index_path, text)
+    return {"meta": meta_count, "list": list_count, "types": type_names, "total": total}
+
+
+def write_album_pages(output_dir: str, catalog_data: dict, build_time: str) -> list:
+    """为每个类型生成索引页, 为每个合集生成预渲染页, 返回写出的相对路径列表"""
+    written = []
+    for t in catalog_data.get("types", []):
+        type_name = t.get("name", "")
+        if not type_name:
+            continue
+        type_dir = os.path.join(output_dir, type_name)
+        os.makedirs(type_dir, exist_ok=True)
+        type_index = os.path.join(type_dir, "index.html")
+        write_text(type_index, render_type_index_page(catalog_data, type_name, build_time))
+        written.append(relative(type_index))
+        for album in t.get("albums", []):
+            album_name = album.get("name", "")
+            if not album_name:
+                continue
+            album_dir = os.path.join(type_dir, album_name)
+            os.makedirs(album_dir, exist_ok=True)
+            page = os.path.join(album_dir, "index.html")
+            write_text(page, render_album_page(catalog_data, type_name, album_name, album, build_time))
+            written.append(relative(page))
+    return written
+
+
+def sitemap_urls(catalog_data: dict) -> list:
+    """汇总需要进入 sitemap 的 URL: 首页、类型索引页、合集页与全部媒体直链"""
+    urls = [site_base()]
+    for t in catalog_data.get("types", []):
+        type_name = t.get("name", "")
+        if not type_name:
+            continue
+        urls.append(type_page_url(type_name))
+        for album in t.get("albums", []):
+            album_name = album.get("name", "")
+            if not album_name:
+                continue
+            urls.append(album_page_url(type_name, album_name))
+            for f in album.get("files", []):
+                urls.append(media_url(item_key(type_name, album_name, f)))
+    return urls
+
+
+def write_robots(output_dir: str) -> str:
+    """写出 robots.txt: 允许全部爬虫抓取, 并声明 sitemap 位置"""
+    lines = [
+        "User-agent: *",
+        "Allow: /",
+        "",
+        "Sitemap: %s" % site_base(SITEMAP_NAME),
+        "",
+    ]
+    path = os.path.join(output_dir, ROBOTS_NAME)
+    write_text(path, "\n".join(lines))
+    return relative(path)
+
+
+def write_sitemap(output_dir: str, catalog_data: dict, lastmod: str) -> str:
+    """写出 sitemap.xml, 覆盖首页、类型索引页、合集页与全部媒体直链"""
+    entries = []
+    for url in sitemap_urls(catalog_data):
+        entries.append(
+            "<url><loc>%s</loc><lastmod>%s</lastmod></url>"
+            % (html.escape(url, quote=True), html.escape(lastmod))
+        )
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + "\n".join(entries)
+        + "\n</urlset>\n"
+    )
+    path = os.path.join(output_dir, SITEMAP_NAME)
+    write_text(path, body)
+    return relative(path)
+
+
 def write_catalog_data_js(output_dir: str, catalog_data: dict, build_time: str, version: str, output_name: str) -> str:
     """把 catalog 数据与构建信息写为前端可加载的 JS 文件,返回相对路径"""
     build_info = {"time": build_time, "repo": SITE_BUILD_REPO}
@@ -340,6 +1124,13 @@ def build(template_dir: str, media_source_dir: str, output_dir: str, catalog_dir
     media_count, media_root = copy_media(output_dir, media_source_dir)
     stale = list_stale_files(output_dir, media_source_dir)
 
+    # SEO 资产: 先注入首页元数据与站点地图, 再生成类型索引页与合集预渲染页,
+    # 最后由汇总的 URL 集合写出 robots.txt 与 sitemap.xml
+    seo = inject_index_seo(output_dir, catalog_data, build_time, version)
+    album_pages = write_album_pages(output_dir, catalog_data, build_time)
+    robots_path = write_robots(output_dir)
+    sitemap_path = write_sitemap(output_dir, catalog_data, build_time[:10])
+
     # 清理上一次构建留下的旧后缀文件, 避免产物目录随构建次数累积
     old_bundles = list_old_bundles(output_dir, set(mapping.values()))
     for path in old_bundles:
@@ -349,6 +1140,12 @@ def build(template_dir: str, media_source_dir: str, output_dir: str, catalog_dir
     print("[完成] 数据文件 %s(构建时间 %s)" % (data_path, build_time))
     print("[完成] 随机后缀 %s,index.html 引用改写 %d 处" % (suffix, replaced))
     print("[完成] 媒体根目录 %s" % media_root)
+    print("[SEO] 首页注入 meta 与结构化数据 %d 项, 站点地图区 %d 处; 类型: %s"
+          % (seo["meta"], seo["list"], seo.get("types", "")))
+    print("[SEO] 预渲染页 %d 个(类型索引页与合集内容页)" % len(album_pages))
+    print("[SEO] %s 与 %s 已写出" % (robots_path, sitemap_path))
+    for path in album_pages:
+        print("[SEO] %s" % path)
     for path in old_bundles:
         print("[清理] %s(上一次构建的旧后缀文件)" % path)
     for path in stale:
