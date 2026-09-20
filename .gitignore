@@ -21,3 +21,6 @@ __pycache__/
 temp/
 .agent/
 .agents/
+
+# catalog not upload from local PC (developer's)
+catalog/
