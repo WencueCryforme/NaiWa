@@ -245,40 +245,6 @@ img { display: block; }
   border-color: var(--accent);
 }
 
-/* 标签横幅: 悬浮于媒体区域顶部, 列出该素材所属合集 */
-.card-label-banner {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 2;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0;
-  padding: 0;
-  /* color-mix 在旧浏览器不支持时自动回退到透明, 不影响功能 */
-  background: color-mix(in srgb, var(--accent) 50%, transparent);
-  pointer-events: none;
-}
-body.hide-label-banner .card-label-banner { display: none !important; }
-.card-label-banner:empty { display: none; }
-.card-label-tag {
-  display: inline-block;
-  margin: 3px 2px;
-  padding: 2px 6px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: #fff;
-  background: var(--accent);
-  border-radius: 3px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: calc(100% - 8px);
-  pointer-events: auto;
-}
-
 .card-media-wrap {
   position: relative;
   width: 100%;
@@ -293,17 +259,27 @@ body.hide-label-banner .card-label-banner { display: none !important; }
    无内在尺寸的媒体(其元素不参与文档流或尺寸为 0)会让卡片高度塌陷 */
 .card-media-wrap.ratio-original.media-loaded { aspect-ratio: auto; height: auto; }
 
-/* 图片铺满卡片: 固定比例模式下由容器裁切, 原始比例模式下按宽度撑满、高度自适应 */
+/* 图片填充: 固定比例与原始比例是两条互斥规则, 各自写全全部属性。
+   此处刻意照搬参考实现的结构 —— 不用"基类 + 部分覆盖"的写法, 因为覆盖规则
+   一旦漏写某个属性(例如 object-fit), 固定模式的 cover 会残留到原始比例模式,
+   媒体仍被裁切, 表现为卡片高度正确但画面被切掉一截 */
 .media-thumb {
+  width: 100%;
+  display: block;
+}
+/* 固定比例模式: 铺满并由容器居中裁切 */
+.card-media-wrap:not(.ratio-original) .media-thumb {
   width: 100%;
   height: 100%;
   object-fit: cover;
   object-position: center;
   display: block;
 }
+/* 原始比例模式: 按宽度撑满, 高度由图片自身比例决定, 不裁切 */
 .card-media-wrap.ratio-original .media-thumb {
   width: 100%;
   height: auto;
+  object-fit: fill;
   display: block;
 }
 
@@ -327,12 +303,23 @@ body.hide-label-banner .card-label-banner { display: none !important; }
 }
 
 /* 视频铺满卡片; 音频无视觉内容, 由 wrap 的比例盒承载播放控件与装饰 */
+/* 视频同样分互斥两种模式, 与图片保持一致的填充口径 */
 .media-video {
+  width: 100%;
+  display: block;
+  background: #000;
+}
+.card-media-wrap:not(.ratio-original) .media-video {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center;
   display: block;
-  background: #000;
+}
+.card-media-wrap.ratio-original .media-video {
+  width: 100%;
+  height: auto;
+  display: block;
 }
 .media-card video.media-thumb,
 .media-card audio.media-thumb { cursor: pointer; }

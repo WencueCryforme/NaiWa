@@ -2,7 +2,7 @@
 
 # 奶蛙
 
-[![Version](https://img.shields.io/badge/Version-0.1.0-red)](https://github.com/WencueCryforme/NaiWa/releases/tag/v0.1.0)
+[![Version](https://img.shields.io/badge/Version-0.1.0-red)](https://github.com/WencueCryforme/NaiWa-Universe/releases/tag/v0.1.0)
 [![Copyright](https://img.shields.io/badge/Copyright-Nobody-0066AA)](./COPYRIGHT)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
@@ -11,7 +11,7 @@
 
 </div>
 
-奶蛙宇宙 <a href="https://WencueCryforme.github.io/NaiWa/" target="_blank">点击此处前往</a>
+奶蛙宇宙 <a href="https://wencuecryforme.github.io/NaiWa-Universe/" target="_blank">点击此处前往</a>
 
 ---
 
@@ -22,7 +22,7 @@
 <img width="120px" src="./dist/meme/奶蛙爆笑合集/奶蛙大笑.gif"/><img width="120px" src="./dist/meme/奶蛙爆笑合集/奶蛙捧腹大笑.gif"/><img width="120px" src="./dist/meme/奶蛙爆笑合集/奶蛙拍墙大笑.jpg"/>
 
 
-[去观看奶蛙的爆笑视频](https://WencueCryforme.github.io/NaiWa/files/video/奶蛙爆笑合集/奶蛙爆笑.mp4) 。
+[去观看奶蛙的爆笑视频](https://wencuecryforme.github.io/NaiWa-Universe/files/video/奶蛙爆笑合集/奶蛙爆笑.mp4) 。
 
 
 ## 表情包

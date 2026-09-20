@@ -12,7 +12,7 @@
   /* 作者信息(宏常量, 页脚渲染来源) */
   const AUTHOR = 'WencueCryforme';
   const AUTHOR_URL = 'https://github.com/WencueCryforme';
-  const REPO_URL = 'https://github.com/WencueCryforme/NaiWa';
+  const REPO_URL = 'https://github.com/WencueCryforme/NaiWa-Universe';
 
   /* 后端跨域地址: 留空表示不启用后端, 点赞与热门统计自动禁用并降级提示;
      部署 api/ 后填入其完整根地址即可启用, 例如 "https://example.com/api" */
@@ -20,7 +20,7 @@
 
   /* 媒体源地址: 默认取站点内 files/ 目录(方案甲);
      备用值 "./dist/"(站点根含 dist 时使用) 与
-     "https://raw.githubusercontent.com/WencueCryforme/NaiWa/main/dist/"
+     "https://raw.githubusercontent.com/WencueCryforme/NaiWa-Universe/main/dist/"
      (raw 跨域源, 目录结构与本项目 dist/ 完全一致) */
   const DIST_SOURCE = './files/';
 
@@ -102,7 +102,7 @@
   const buildInfo = window.NAIWA_BUILD || { time: '', repo: '' };
   const backendOn = BACKEND_API !== '';
   const settings = store.get('settings', {
-    theme: 'light', cols: 3, ratio: '1 / 1', caption: 1
+    theme: 'light', cols: 3, ratio: '1 / 1'
   });
   /* 窄屏下把历史列数收进可选范围, 避免在手机上沿用桌面端的超宽列数 */
   settings.cols = Math.min(Math.max(Number(settings.cols) || 3, COLS_MIN), maxCols());
@@ -146,7 +146,7 @@
     fullscreenWrap: $('fullscreenWrap'), fullscreenMedia: $('fullscreenMedia'), fullscreenCaption: $('fullscreenCaption'),
     zoomIn: $('zoomIn'), zoomOut: $('zoomOut'), zoomReset: $('zoomReset'),
     settingsPanel: $('settingsPanel'), settingsToggle: $('settingsToggle'), settingsClose: $('settingsClose'),
-    colSwitch: $('colSwitch'), ratioSwitch: $('ratioSwitch'), themeSwitch: $('themeSwitch'), captionSwitch: $('captionSwitch'),
+    colSwitch: $('colSwitch'), ratioSwitch: $('ratioSwitch'), themeSwitch: $('themeSwitch'),
     guideLayer: $('guideLayer'), guideClose: $('guideClose'),
     toastContainer: $('toastContainer'), brandHome: $('brandHome')
   };
@@ -173,6 +173,10 @@
    * POST {BACKEND_API}/stats.php  请求体 { media, action }
    *      action 取值 view / like / favorite, 返回 { ok, stats }
    * media 为 "类型/合集/文件" 逐段百分号编码后的值 */
+  /* media 为 "类型/合集/文件" 逐段百分号编码后的值。
+     注意: 这里只做逐段编码, 不能再套一层 encodeURIComponent ——
+     encodeKey 已把每段编码完毕, 再编码一次会把 % 转义成 %25(双重编码),
+     并把 / 转成 %2F, 服务端解码一次后得到的是带 % 的残串, 与库中的原始中文键永不相等 */
   function encodeKey(key) {
     return key.split('/').map(encodeURIComponent).join('/');
   }
@@ -234,14 +238,10 @@
     if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
     return String(num);
   }
-  /* 卡片标签: 当前以合集名作为唯一天然标签, 便于同合集素材在视觉上归组 */
-  function labelsForItem(item) {
-    return item.album ? [item.album] : [];
-  }
   /* 批量拉取统计并写入缓存, 随后刷新已渲染卡片的计数 */
   function refreshStats(keys) {
     if (!backendOn || !keys.length) return Promise.resolve();
-    return apiGet('/stats.php?stats&' + keys.map((k) => 'media[]=' + encodeURIComponent(encodeKey(k))).join('&'))
+    return apiGet('/stats.php?stats&' + keys.map((k) => 'media[]=' + encodeKey(k)).join('&'))
       .then((data) => {
         (data.stats || []).forEach((row) => {
           if (row && row.media) statsCache[row.media] = row;
@@ -409,8 +409,6 @@
         w.classList.remove('ratio-original');
       }
     });
-    /* 卡片标签横幅显隐: 由 body 上的类名统一控制, 与参考实现一致 */
-    document.body.classList.toggle('hide-label-banner', !settings.caption);
   }
 
   /* ---------- 媒体卡片 ----------
@@ -456,25 +454,6 @@
     return btn;
   }
 
-  /* 顶部标签横幅: 列出该素材命中的分类标签, 无标签时整条隐藏 */
-  function buildLabelBanner(card, item) {
-    const banner = document.createElement('div');
-    banner.className = 'card-label-banner';
-    const labels = labelsForItem(item);
-    if (labels.length === 0) {
-      banner.style.display = 'none';
-    } else {
-      labels.forEach((text) => {
-        const tag = document.createElement('span');
-        tag.className = 'card-label-tag';
-        tag.textContent = text;
-        banner.appendChild(tag);
-      });
-    }
-    card.appendChild(banner);
-    return banner;
-  }
-
   class MediaCard {
     constructor(item, opts) {
       opts = opts || {};
@@ -489,9 +468,6 @@
       const card = document.createElement('div');
       card.className = 'media-card';
       card.dataset.key = item.key;
-
-      /* 标签横幅: 悬浮于媒体区域上方, 与参考实现一致 */
-      this.labelBanner = buildLabelBanner(card, item);
 
       /* 媒体区域: 懒加载与播放控件的挂载点 */
       const wrap = document.createElement('div');
@@ -1181,9 +1157,6 @@
       opt.selected = settings.theme === t.id;
       dom.themeSwitch.appendChild(opt);
     });
-    dom.captionSwitch.querySelectorAll('.col-btn').forEach((b) => {
-      b.classList.toggle('active', Number(b.dataset.caption) === settings.caption);
-    });
   }
   function openSettings() {
     renderSettings();
@@ -1296,14 +1269,6 @@
       settings.theme = dom.themeSwitch.value;
       store.set('settings', settings);
       applySettings();
-    });
-    dom.captionSwitch.querySelectorAll('.col-btn').forEach((b) => {
-      b.addEventListener('click', () => {
-        settings.caption = Number(b.dataset.caption);
-        store.set('settings', settings);
-        renderSettings();
-        applySettings();
-      });
     });
     dom.guideClose.addEventListener('click', () => {
       dom.guideLayer.hidden = true;
